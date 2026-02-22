@@ -1,0 +1,389 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum QuizStatus {
+  DRAFT
+  PUBLISHED
+  FINISHED
+}
+
+enum QuizAccessType {
+  ALL_IN_ORG
+  SPECIFIC_USERS
+}
+
+enum QuestionType {
+  MCQ // Multiple Choice Question (multiple correct answers)
+  SINGLE_OPTION // Single correct answer
+  TRUE_FALSE
+  CODING_QUESTION
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  ABANDONED
+}
+
+// ============================================
+// CORE MODELS
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  role      Role     @default(STUDENT)
+  
+  // Organization relationship
+  orgId     String?  @map("org_id")
+  org       Org?     @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  batchInstructors BatchInstructor[]
+  batchStudents    BatchStudent[]
+  quizzesCreated   Quiz[]            @relation("QuizCreator")
+  quizInvitations  QuizInvitation[]
+  attempts         Attempt[]
+  
+  @@index([email])
+  @@index([orgId])
+  @@index([role])
+  @@map("users")
+}
+
+model Org {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Admin of the organization
+  adminId     String?  @unique @map("admin_id")
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  users       User[]
+  batches     Batch[]
+  quizzes     Quiz[]
+  
+  @@index([adminId])
+  @@map("orgs")
+}
+
+model Batch {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Organization relationship
+  orgId       String   @map("org_id")
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  instructors BatchInstructor[]
+  students    BatchStudent[]
+  
+  @@index([orgId])
+  @@map("batches")
+}
+
+// Junction table for Batch-Instructor relationship (many-to-many)
+model BatchInstructor {
+  id           String   @id @default(cuid())
+  
+  batchId      String   @map("batch_id")
+  batch        Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  
+  instructorId String   @map("instructor_id")
+  instructor   User     @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+  
+  @@unique([batchId, instructorId])
+  @@index([batchId])
+  @@index([instructorId])
+  @@map("batch_instructors")
+}
+
+// Junction table for Batch-Student relationship (many-to-many)
+model BatchStudent {
+  id         String   @id @default(cuid())
+  
+  batchId    String   @map("batch_id")
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  
+  studentId  String   @map("student_id")
+  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  enrolledAt DateTime @default(now()) @map("enrolled_at")
+  
+  @@unique([batchId, studentId])
+  @@index([batchId])
+  @@index([studentId])
+  @@map("batch_students")
+}
+
+// ============================================
+// QUIZ MODELS
+// ============================================
+
+model Quiz {
+  id                     String         @id @default(cuid())
+  title                  String
+  description            String?
+  
+  // Organization relationship
+  orgId                  String         @map("org_id")
+  org                    Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  // Creator
+  createdBy              String         @map("created_by")
+  creator                User           @relation("QuizCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  
+  // Access control
+  accessType             QuizAccessType @default(ALL_IN_ORG) @map("access_type")
+  
+  // Quiz configuration
+  totalTimeLimit         Int?           @map("total_time_limit") // in minutes
+  status                 QuizStatus     @default(DRAFT)
+  
+  // Time windows
+  beginWindow            DateTime?      @map("begin_window")
+  endWindow              DateTime?      @map("end_window")
+  
+  // Result settings
+  showResultsImmediately Boolean        @default(false) @map("show_results_immediately")
+  
+  // Timestamps
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+  publishedAt            DateTime?      @map("published_at")
+  
+  // Relations
+  sections               Section[]
+  invitations            QuizInvitation[]
+  attempts               Attempt[]
+  
+  @@index([orgId])
+  @@index([createdBy])
+  @@index([status])
+  @@index([beginWindow])
+  @@index([endWindow])
+  @@map("quizzes")
+}
+
+model QuizInvitation {
+  id        String   @id @default(cuid())
+  
+  quizId    String   @map("quiz_id")
+  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  invitedAt DateTime @default(now()) @map("invited_at")
+  
+  @@unique([quizId, userId])
+  @@index([quizId])
+  @@index([userId])
+  @@map("quiz_invitations")
+}
+
+model Section {
+  id                  String   @id @default(cuid())
+  
+  quizId              String   @map("quiz_id")
+  quiz                Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  title               String
+  instructions        String?  @db.Text
+  
+  // Section configuration
+  order               Int      // For ordering sections
+  sectionalTimeLimit  Int?     @map("sectional_time_limit") // in minutes
+  sectionalPassScore  Float?   @map("sectional_pass_score") // minimum score to pass
+  sectionalTotalScore Float    @map("sectional_total_score") // total points for this section
+  
+  // Timestamps
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  questions           Question[]
+  
+  @@index([quizId])
+  @@index([order])
+  @@map("sections")
+}
+
+model Question {
+  id           String       @id @default(cuid())
+  
+  sectionId    String       @map("section_id")
+  section      Section      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  
+  questionType QuestionType @map("question_type")
+  questionText String       @db.Text @map("question_text")
+  
+  // Question configuration
+  order        Int          // For ordering questions within a section
+  points       Float        @default(1) // Points for this question
+  
+  // Optional fields for coding questions
+  codeTemplate String?      @db.Text @map("code_template")
+  testCases    Json?        @map("test_cases") // Store test cases as JSON
+  
+  // Explanation/solution
+  explanation  String?      @db.Text
+  
+  // Timestamps
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  
+  // Relations
+  options      Option[]
+  answers      Answer[]
+  
+  @@index([sectionId])
+  @@index([order])
+  @@map("questions")
+}
+
+model Option {
+  id         String   @id @default(cuid())
+  
+  questionId String   @map("question_id")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  
+  optionText String   @db.Text @map("option_text")
+  isCorrect  Boolean  @default(false) @map("is_correct")
+  order      Int      // For ordering options
+  
+  // Timestamps
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  answers    Answer[]
+  
+  @@index([questionId])
+  @@index([order])
+  @@map("options")
+}
+
+// ============================================
+// ANALYTICS & RESULTS MODELS
+// ============================================
+
+model Attempt {
+  id              String        @id @default(cuid())
+  
+  userId          String        @map("user_id")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  quizId          String        @map("quiz_id")
+  quiz            Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  
+  // Attempt metadata
+  attemptNumber   Int           @map("attempt_number") // Track which attempt this is for the user
+  status          AttemptStatus @default(IN_PROGRESS)
+  
+  // Timing
+  startedAt       DateTime      @default(now()) @map("started_at")
+  submittedAt     DateTime?     @map("submitted_at")
+  timeSpent       Int?          @map("time_spent") // in seconds
+  
+  // Scoring
+  totalScore      Float?        @map("total_score")
+  maxScore        Float?        @map("max_score")
+  percentageScore Float?        @map("percentage_score")
+  passed          Boolean?      // Whether the user passed the quiz
+  
+  // Metadata
+  ipAddress       String?       @map("ip_address")
+  userAgent       String?       @map("user_agent")
+  
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  
+  // Relations
+  answers         Answer[]
+  
+  @@unique([userId, quizId, attemptNumber])
+  @@index([userId])
+  @@index([quizId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("attempts")
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  
+  attemptId  String   @map("attempt_id")
+  attempt    Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  
+  questionId String   @map("question_id")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  
+  // For MCQ and single option questions
+  optionId   String?  @map("option_id")
+  option     Option?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  
+  // For multiple selections (MCQ with multiple correct answers)
+  selectedOptions Json? @map("selected_options") // Array of option IDs
+  
+  // For coding questions or text answers
+  textAnswer String?  @db.Text @map("text_answer")
+  
+  // Answer evaluation
+  isCorrect  Boolean? @map("is_correct")
+  pointsEarned Float? @map("points_earned")
+  
+  // Timing for this specific question
+  timeSpent  Int?     @map("time_spent") // in seconds
+  
+  // Timestamps
+  answeredAt DateTime @default(now()) @map("answered_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  
+  @@index([attemptId])
+  @@index([questionId])
+  @@index([optionId])
+  @@map("answers")
+}
