@@ -133,6 +133,28 @@ function QuizResultCard({ quiz }: { quiz: Quiz }) {
   );
 }
 
+// ── SortBtn component ───────────────────────────────────────────────────────
+function SortBtn({
+  k,
+  label,
+  sort,
+  setSort,
+}: {
+  k: SortKey;
+  label: string;
+  sort: SortKey;
+  setSort: (k: SortKey) => void;
+}) {
+  return (
+    <button
+      onClick={() => setSort(k)}
+      className={`flex items-center gap-1 text-[10px] uppercase tracking-wide transition ${sort === k ? "text-amber-400" : "text-gray-600 hover:text-gray-400"}`}
+    >
+      {label} <ArrowUpDown size={9} />
+    </button>
+  );
+}
+
 // ── All submissions table ────────────────────────────────────────────────────
 function SubmissionsTable({
   submissions,
@@ -145,29 +167,20 @@ function SubmissionsTable({
 }) {
   const quizMap = Object.fromEntries(mockQuizzes.map((q) => [q.id, q.title]));
 
-  const SortBtn = ({ k, label }: { k: SortKey; label: string }) => (
-    <button
-      onClick={() => setSort(k)}
-      className={`flex items-center gap-1 text-[10px] uppercase tracking-wide transition ${sort === k ? "text-amber-400" : "text-gray-600 hover:text-gray-400"}`}
-    >
-      {label} <ArrowUpDown size={9} />
-    </button>
-  );
-
   return (
     <div className="bg-neutral-900 border border-white/8 rounded-2xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-white/5 grid grid-cols-12 gap-3">
         <div className="col-span-3">
-          <SortBtn k="student" label="Student" />
+          <SortBtn k="student" label="Student" sort={sort} setSort={setSort} />
         </div>
         <div className="col-span-4">
-          <SortBtn k="quiz" label="Quiz" />
+          <SortBtn k="quiz" label="Quiz" sort={sort} setSort={setSort} />
         </div>
         <div className="col-span-2">
-          <SortBtn k="score" label="Score" />
+          <SortBtn k="score" label="Score" sort={sort} setSort={setSort} />
         </div>
         <div className="col-span-2">
-          <SortBtn k="date" label="Date" />
+          <SortBtn k="date" label="Date" sort={sort} setSort={setSort} />
         </div>
         <div className="col-span-1" />
       </div>
@@ -359,12 +372,12 @@ export default function InstructorResultsClient() {
 
         <div className="ml-auto flex bg-neutral-900 border border-white/8 rounded-xl overflow-hidden">
           {[
-            { v: "quizzes", l: "By Quiz" },
-            { v: "submissions", l: "All Submissions" },
+            { v: "quizzes" as const, l: "By Quiz" },
+            { v: "submissions" as const, l: "All Submissions" },
           ].map((t) => (
             <button
               key={t.v}
-              onClick={() => setView(t.v as any)}
+              onClick={() => setView(t.v)}
               className={`px-3 py-1.5 text-xs font-medium transition ${view === t.v ? "bg-amber-400 text-black" : "text-gray-500 hover:text-white"}`}
             >
               {t.l}

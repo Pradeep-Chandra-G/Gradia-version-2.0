@@ -569,12 +569,12 @@ export default function InstructorQuizBuilderClient() {
         {/* Sidebar */}
         <div className="w-56 shrink-0 border-r border-white/8 p-4 flex flex-col gap-1">
           {[
-            { id: "build", label: "Builder", icon: BookOpen },
-            { id: "settings", label: "Settings", icon: Settings },
+            { id: "build" as const, label: "Builder", icon: BookOpen },
+            { id: "settings" as const, label: "Settings", icon: Settings },
           ].map((t) => (
             <button
               key={t.id}
-              onClick={() => setActiveTab(t.id as any)}
+              onClick={() => setActiveTab(t.id)}
               className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition ${
                 activeTab === t.id
                   ? "bg-amber-400/15 border border-amber-400/30 text-amber-300"

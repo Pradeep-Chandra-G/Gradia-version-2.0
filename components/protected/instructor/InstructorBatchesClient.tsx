@@ -330,6 +330,7 @@ export default function InstructorBatchesClient() {
   const [batches, setBatches] = useState<Batch[]>(mockBatches);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  console.log("This is instructor Batches client");
 
   const filtered = useMemo(
     () =>
@@ -431,8 +432,8 @@ export default function InstructorBatchesClient() {
               {totalAwaiting} enrollment request{totalAwaiting > 1 ? "s" : ""}{" "}
               need admin approval.
             </span>{" "}
-            You&apos;ll be notified when they&apos;re approved — then you can confirm
-            adding the student to the batch.
+            You&apos;ll be notified when they&apos;re approved — then you can
+            confirm adding the student to the batch.
           </p>
         </div>
       )}
