@@ -1,32 +1,41 @@
 "use client";
 
-import { useState } from "react";
 import { QuestionSeed } from "@/data/quizQuestions";
 import { Check, CircleCheck, CopyCheck, Eraser, X } from "lucide-react";
 
 type Props = {
   question: QuestionSeed;
+  selectedOption: number | null;
+  selectedOptions: number[];
+  onSingleChange: (optionId: number | null) => void;
+  onMultiChange: (optionIds: number[]) => void;
 };
 
-export default function QuestionContainer({ question }: Props) {
+export default function QuestionContainer({
+  question,
+  selectedOption,
+  selectedOptions,
+  onSingleChange,
+  onMultiChange,
+}: Props) {
   const { question_id, questionText, options, questionType, points } = question;
 
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [selectedOptions, setSelectedOptions] = useState<number[]>([]);
-
-  const handleRadioChange = (id: number) => setSelectedOption(id);
+  const handleRadioChange = (id: number) => {
+    // Toggle off if clicking the same option
+    onSingleChange(selectedOption === id ? null : id);
+  };
 
   const handleCheckboxChange = (id: number) => {
     if (selectedOptions.includes(id)) {
-      setSelectedOptions(selectedOptions.filter((o) => o !== id));
+      onMultiChange(selectedOptions.filter((o) => o !== id));
     } else {
-      setSelectedOptions([...selectedOptions, id]);
+      onMultiChange([...selectedOptions, id]);
     }
   };
 
   const handleClear = () => {
-    setSelectedOption(null);
-    setSelectedOptions([]);
+    onSingleChange(null);
+    onMultiChange([]);
   };
 
   const renderOptions = () => {
@@ -79,17 +88,17 @@ export default function QuestionContainer({ question }: Props) {
           Question {question_id}
         </span>
         <div className="flex flex-row items-center justify-between gap-6">
-          <span className="text-sm text-neutral-500 ">
-            {questionType == "SINGLE_OPTION" ? (
+          <span className="text-sm text-neutral-500">
+            {questionType === "SINGLE_OPTION" ? (
               <div className="flex flex-row items-center gap-1">
                 <CircleCheck size={16} color="lime" /> <p>Single Choice</p>
               </div>
-            ) : questionType == "MCQ" ? (
+            ) : questionType === "MCQ" ? (
               <div className="flex flex-row items-center gap-1">
                 <CopyCheck size={16} color="orange" /> <p>Multiple Choice</p>
               </div>
             ) : (
-              <div className="flex flex-row  items-center gap-1">
+              <div className="flex flex-row items-center gap-1">
                 <div className="items-center flex flex-row">
                   <Check size={16} color="lime" />
                   <X size={16} color="red" />

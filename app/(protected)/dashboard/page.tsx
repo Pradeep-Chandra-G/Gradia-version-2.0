@@ -1,26 +1,34 @@
-import CoreStats from "@/components/protected/CoreStats";
 import { currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import StudentDashboard from "@/components/protected/dashboard/StudentDashboard";
+import InstructorDashboard from "@/components/protected/dashboard/InstructorDashboard";
+import AdminDashboard from "@/components/protected/dashboard/AdminDashboard";
 
 export default async function DashboardPage() {
   const user = await currentUser();
+  if (!user) redirect("/auth/sign-in");
 
-  if (!user) {
-    return <div>User not found!</div>;
-  }
+  const role = user.publicMetadata?.role as string | undefined;
+
+  // Role is assigned by the Clerk webhook on sign-up.
+  // Default to STUDENT if somehow unset (shouldn't happen after webhook runs).
+  const resolvedRole = role ?? "STUDENT";
 
   return (
-    <div className="h-screen overflow-hidden bg-background flex">
-      <main className="flex-1 overflow-y-auto scrollbar-hide">
-        <div className="p-8">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-4xl font-black tracking-normal text-white">
-              Welcome, {user.firstName} {user.lastName}
-            </h1>
-          </div>
-        </div>
-
-        <CoreStats />
-      </main>
+    <div className="min-h-screen bg-background">
+      {resolvedRole === "ADMIN" && (
+        <AdminDashboard firstName={user.firstName ?? "Admin"} />
+      )}
+      {resolvedRole === "INSTRUCTOR" && (
+        <InstructorDashboard firstName={user.firstName ?? "Instructor"} />
+      )}
+      {resolvedRole === "STUDENT" && (
+        <StudentDashboard firstName={user.firstName ?? "Student"} />
+      )}
+      {/* Safety net: if role is somehow something unexpected */}
+      {!["ADMIN", "INSTRUCTOR", "STUDENT"].includes(resolvedRole) && (
+        <StudentDashboard firstName={user.firstName ?? "User"} />
+      )}
     </div>
   );
 }

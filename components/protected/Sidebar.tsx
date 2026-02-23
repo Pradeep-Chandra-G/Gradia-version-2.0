@@ -7,10 +7,38 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import UserMenu from "./UserMenu";
 
+// ── Role → nav items mapping ──────────────────────────────────────────────
+const NAV_ITEMS: Record<string, { label: string; href: string }[]> = {
+  Admin: [
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "Organisations", href: "/dashboard/admin/organisations" },
+    { label: "Batches", href: "/dashboard/admin/batches" },
+    { label: "Quizzes", href: "/dashboard/admin/quizzes" },
+    { label: "Results", href: "/dashboard/admin/results" },
+    { label: "Analytics", href: "/dashboard/admin/analytics" },
+    { label: "Settings", href: "/dashboard/admin/settings" },
+  ],
+  Instructor: [
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "Batches", href: "/dashboard/instructor/batches" },
+    { label: "Quizzes", href: "/dashboard/instructor/quizzes" },
+    { label: "Results", href: "/dashboard/instructor/results" },
+    { label: "Analytics", href: "/dashboard/instructor/analytics" },
+    { label: "Settings", href: "/dashboard/instructor/settings" },
+  ],
+  Student: [
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "My Quizzes", href: "/dashboard/quizzes" },
+    { label: "Results", href: "/dashboard/results" },
+    { label: "Analytics", href: "/dashboard/analytics" },
+    { label: "Settings", href: "/dashboard/settings" },
+  ],
+};
+
+// ── Skeleton ──────────────────────────────────────────────────────────────
 function SidebarSkeleton() {
   return (
     <div className="h-screen sticky top-0 bg-neutral-900 p-4 flex flex-col">
-      {/* Branding skeleton */}
       <div className="flex items-center gap-2 mb-6">
         <div className="h-9 w-9 rounded-lg bg-neutral-800 animate-pulse" />
         <div className="space-y-2">
@@ -18,8 +46,6 @@ function SidebarSkeleton() {
           <div className="h-3 w-16 bg-neutral-800 rounded animate-pulse" />
         </div>
       </div>
-
-      {/* Nav skeleton */}
       <div className="flex flex-col gap-2">
         {Array.from({ length: 5 }).map((_, i) => (
           <div
@@ -28,8 +54,6 @@ function SidebarSkeleton() {
           />
         ))}
       </div>
-
-      {/* User menu skeleton */}
       <div className="mt-auto p-2">
         <div className="h-14 rounded-lg bg-neutral-800 animate-pulse" />
       </div>
@@ -37,6 +61,7 @@ function SidebarSkeleton() {
   );
 }
 
+// ── Sidebar content ───────────────────────────────────────────────────────
 function SidebarContent({
   navItems,
   role,
@@ -54,7 +79,7 @@ function SidebarContent({
       <div className="flex items-center gap-2 mb-6">
         <GraduationCap
           size={36}
-          className="bg-amber-400 rounded-lg p-1 border border-amber-200"
+          className="bg-amber-400 rounded-lg p-1 border border-amber-200 shrink-0"
         />
         <div>
           <h2 className="text-lg font-bold text-white">Gradia</h2>
@@ -66,8 +91,6 @@ function SidebarContent({
       <nav className="flex flex-col flex-1">
         <div className="flex flex-col gap-1 font-semibold text-lg">
           {navItems.map((item) => {
-            // Check if current path starts with the nav item href
-            // This keeps parent routes highlighted when on child pages
             const isActive =
               item.href === "/dashboard"
                 ? pathname === item.href
@@ -99,59 +122,35 @@ function SidebarContent({
   );
 }
 
-function Sidebar() {
+// ── Main Sidebar ──────────────────────────────────────────────────────────
+export default function Sidebar() {
   const { user, isLoaded } = useUser();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // 🚨 IMPORTANT: block render until Clerk is ready
-  if (!isLoaded) {
-    return <SidebarSkeleton />;
-  }
+  if (!isLoaded) return <SidebarSkeleton />;
 
-  const role =
+  const roleKey =
     user?.publicMetadata?.role === "ADMIN"
       ? "Admin"
       : user?.publicMetadata?.role === "INSTRUCTOR"
         ? "Instructor"
         : "Student";
 
-  const navItems =
-    role === "Admin"
-      ? [
-          { label: "Dashboard", href: "/dashboard" },
-          { label: "Organisations", href: "/dashboard/admin/organisations" },
-          { label: "Batches", href: "/dashboard/admin/batches" },
-          { label: "Quizzes", href: "/dashboard/admin/quizzes" },
-          { label: "Results", href: "/dashboard/admin/results" },
-          { label: "Analytics", href: "/dashboard/admin/analytics" },
-          { label: "Settings", href: "/dashboard/admin/settings" },
-        ]
-      : role === "Instructor"
-        ? [
-            { label: "Dashboard", href: "/dashboard" },
-            { label: "Batches", href: "/dashboard/admin/batches" },
-            { label: "Quizzes", href: "/dashboard/admin/quizzes" },
-            { label: "Results", href: "/dashboard/admin/results" },
-            { label: "Analytics", href: "/dashboard/admin/analytics" },
-            { label: "Settings", href: "/dashboard/admin/settings" },
-          ]
-        : [
-            { label: "Dashboard", href: "/dashboard" },
-            { label: "My Quizzes", href: "/dashboard/quizzes" },
-            { label: "Results", href: "/dashboard/results" },
-            { label: "Analytics", href: "/dashboard/analytics" },
-            { label: "Settings", href: "/dashboard/settings" },
-          ];
+  const navItems = NAV_ITEMS[roleKey] ?? NAV_ITEMS.Student;
 
   return (
     <>
-      {/* Desktop Sidebar - Hidden on mobile */}
+      {/* Desktop */}
       <div className="hidden md:flex h-screen sticky top-0 bg-neutral-900 p-4 flex-col">
-        <SidebarContent navItems={navItems} role={role} pathname={pathname} />
+        <SidebarContent
+          navItems={navItems}
+          role={roleKey}
+          pathname={pathname}
+        />
       </div>
 
-      {/* Mobile Hamburger Button */}
+      {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
         className="md:hidden fixed top-4 left-4 z-40 rounded-md bg-neutral-900 p-2 text-white"
@@ -160,18 +159,14 @@ function Sidebar() {
         <Menu size={24} />
       </button>
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Mobile overlay */}
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-50">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setMobileOpen(false)}
           />
-
-          {/* Sidebar */}
           <div className="absolute left-0 top-0 h-full w-64 bg-neutral-900 p-4 flex flex-col">
-            {/* Close button */}
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white"
@@ -179,10 +174,9 @@ function Sidebar() {
             >
               <X size={24} />
             </button>
-
             <SidebarContent
               navItems={navItems}
-              role={role}
+              role={roleKey}
               pathname={pathname}
               onLinkClick={() => setMobileOpen(false)}
             />
@@ -192,5 +186,3 @@ function Sidebar() {
     </>
   );
 }
-
-export default Sidebar;

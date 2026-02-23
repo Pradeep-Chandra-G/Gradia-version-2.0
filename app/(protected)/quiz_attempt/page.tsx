@@ -1,7 +1,7 @@
-import QuizNavbar from "@/components/protected/quiz_attempt/QuizNavbar";
 import QuizAttemptClient from "@/components/protected/quiz_attempt/QuizAttemptClient";
-import { quiz1 } from "@/data/quizQuestions";
+import { quizDataMap } from "@/data/quizQuestions";
 import { quizzesData } from "@/data/quizzes";
+import Link from "next/link";
 
 export default async function QuizAttemptPage({
   searchParams,
@@ -9,19 +9,33 @@ export default async function QuizAttemptPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const resolvedSearchParams = await searchParams;
+  const quizId = resolvedSearchParams.quizId as string | undefined;
 
-  const quizId = resolvedSearchParams.quizId;
-  const quiz = quizzesData.find((quiz) => quiz.id === quizId);
+  const quiz = quizzesData.find((q) => q.id === quizId);
+  const quizData = quizId ? quizDataMap[quizId] : undefined;
 
-  if (!quiz) {
-    return <div>Quiz not found</div>;
+  if (!quiz || !quizData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen text-white gap-4 bg-black">
+        <h1 className="text-2xl font-bold">Quiz not available</h1>
+        <p className="text-gray-400 text-sm">
+          {quiz
+            ? "This quiz has no questions configured yet."
+            : "Quiz not found."}
+        </p>
+        <Link
+          href="/dashboard/quizzes"
+          className="px-4 py-2 bg-amber-400 text-black rounded-lg font-semibold"
+        >
+          Back to Quizzes
+        </Link>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col h-screen text-white overflow-hidden">
-      <QuizNavbar quiz={quiz} />
-
-      <QuizAttemptClient quizData={quiz1} />
-    </div>
+    // QuizAttemptClient renders the navbar itself so the timer expiry
+    // callback can cross the server/client boundary cleanly.
+    <QuizAttemptClient quizData={quizData} quiz={quiz} />
   );
 }

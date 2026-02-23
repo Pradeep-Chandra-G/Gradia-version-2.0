@@ -1,22 +1,18 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-export default async function QuizAttemptPageLayout({
+export default async function InstructorLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const user = await currentUser();
+  if (!user) redirect("/auth/sign-in");
 
-  if (!user) {
-    redirect("/auth/sign-in");
-  }
-
-  // Only students (and admins for testing) can take quizzes
   const role = user.publicMetadata?.role as string | undefined;
-  if (role === "INSTRUCTOR") {
+  if (role !== "INSTRUCTOR" && role !== "ADMIN") {
     redirect("/dashboard");
   }
 
-  return <div className="bg-black h-screen w-full font-sans">{children}</div>;
+  return <>{children}</>;
 }
