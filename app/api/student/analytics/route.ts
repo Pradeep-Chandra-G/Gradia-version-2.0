@@ -1,90 +1,93 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getCurrentUser, unauthorized, forbidden, ok } from "@/lib/api-utils";
 
-export async function GET(req: NextRequest) {
+// GET /api/student/analytics
+export async function GET(_req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
-  if (user.role !== "STUDENT") return forbidden();
-
-  const { searchParams } = new URL(req.url);
-  const range = parseInt(searchParams.get("days") ?? "30");
-  const since = new Date(Date.now() - range * 24 * 60 * 60 * 1000);
+  if (user.role !== "STUDENT" && user.role !== "ADMIN") return forbidden();
 
   const attempts = await prisma.attempt.findMany({
-    where: {
-      userId: user.id,
-      status: "SUBMITTED",
-      submittedAt: { gte: since },
-    },
+    where: { userId: user.id, status: "SUBMITTED" },
     orderBy: { submittedAt: "asc" },
-    include: {
-      quiz: { select: { title: true, subject: true } },
+    select: {
+      id: true,
+      totalScore: true,
+      maxScore: true,
+      percentageScore: true,
+      passed: true,
+      submittedAt: true,
+      timeSpent: true,
+      quiz: {
+        select: {
+          title: true,
+          subject: true,
+        },
+      },
     },
   });
 
-  // Score trend over time
-  const scoreTrend = attempts.map((a) => ({
-    date: a.submittedAt,
+  const total = attempts.length;
+  const averageScore =
+    total > 0
+      ? attempts.reduce((s, a) => s + (a.percentageScore ?? 0), 0) / total
+      : 0;
+  const highestScore =
+    total > 0 ? Math.max(...attempts.map((a) => a.percentageScore ?? 0)) : 0;
+  const passRate =
+    total > 0 ? (attempts.filter((a) => a.passed).length / total) * 100 : 0;
+  const totalTimeSpent = attempts.reduce((s, a) => s + (a.timeSpent ?? 0), 0);
+
+  const scoreHistory = attempts.map((a) => ({
+    date: a.submittedAt?.toISOString() ?? new Date().toISOString(),
+    score: Math.round(a.percentageScore ?? 0),
+    passed: a.passed ?? false,
     quizTitle: a.quiz.title,
-    subject: a.quiz.subject,
-    percentageScore: a.percentageScore ?? 0,
-    passed: a.passed,
   }));
 
-  // Per-subject performance
-  const subjectMap = new Map<
-    string,
-    { total: number; count: number; passed: number }
-  >();
+  // Subject performance
+  const subjectMap = new Map<string, { scores: number[]; passed: number }>();
   for (const a of attempts) {
-    const sub = a.quiz.subject;
-    const prev = subjectMap.get(sub) ?? { total: 0, count: 0, passed: 0 };
-    subjectMap.set(sub, {
-      total: prev.total + (a.percentageScore ?? 0),
-      count: prev.count + 1,
-      passed: prev.passed + (a.passed ? 1 : 0),
-    });
+    const subj = a.quiz.subject ?? "General";
+    if (!subjectMap.has(subj)) subjectMap.set(subj, { scores: [], passed: 0 });
+    const entry = subjectMap.get(subj)!;
+    entry.scores.push(a.percentageScore ?? 0);
+    if (a.passed) entry.passed++;
   }
-  const subjectPerformance = Array.from(subjectMap.entries()).map(
-    ([subject, stats]) => ({
+
+  const subjectPerformance = Array.from(subjectMap.entries())
+    .map(([subject, data]) => ({
       subject,
-      averageScore: Math.round(stats.total / stats.count),
-      totalAttempts: stats.count,
-      passRate: Math.round((stats.passed / stats.count) * 100),
-    }),
-  );
+      attempts: data.scores.length,
+      average: data.scores.reduce((s, v) => s + v, 0) / data.scores.length,
+      passRate: (data.passed / data.scores.length) * 100,
+    }))
+    .sort((a, b) => b.attempts - a.attempts);
 
-  // Streak & consistency
-  const uniqueDays = new Set(
-    attempts
-      .filter((a) => a.submittedAt)
-      .map((a) => a.submittedAt!.toISOString().split("T")[0]),
-  );
+  // Recent trend: compare last 5 vs previous 5
+  let recentTrend = 0;
+  if (scoreHistory.length >= 4) {
+    const recent = scoreHistory.slice(-5);
+    const previous = scoreHistory.slice(-10, -5);
+    if (previous.length > 0) {
+      const recentAvg = recent.reduce((s, h) => s + h.score, 0) / recent.length;
+      const prevAvg =
+        previous.reduce((s, h) => s + h.score, 0) / previous.length;
+      recentTrend = Math.round(recentAvg - prevAvg);
+    }
+  }
 
-  // Overall stats
-  const allAttempts = await prisma.attempt.count({
-    where: { userId: user.id, status: "SUBMITTED" },
-  });
-  const passedAttempts = await prisma.attempt.count({
-    where: { userId: user.id, status: "SUBMITTED", passed: true },
-  });
-  const avgResult = await prisma.attempt.aggregate({
-    where: { userId: user.id, status: "SUBMITTED" },
-    _avg: { percentageScore: true, timeSpent: true },
-  });
-
-  return ok({
-    overview: {
-      totalAttempts: allAttempts,
-      passedAttempts,
-      passRate:
-        allAttempts > 0 ? Math.round((passedAttempts / allAttempts) * 100) : 0,
-      averageScore: Math.round(avgResult._avg.percentageScore ?? 0),
-      averageTimeSpent: Math.round(avgResult._avg.timeSpent ?? 0),
-      activeDays: uniqueDays.size,
+  return NextResponse.json({
+    summary: {
+      totalAttempts: total,
+      averageScore,
+      highestScore,
+      passRate,
+      totalTimeSpent,
     },
-    scoreTrend,
+    scoreHistory,
     subjectPerformance,
+    recentTrend,
   });
 }

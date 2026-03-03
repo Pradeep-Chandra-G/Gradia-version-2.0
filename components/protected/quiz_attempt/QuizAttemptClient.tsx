@@ -1,551 +1,462 @@
 "use client";
 
-import { QuizSeed } from "@/data/quizQuestions";
-import { Quiz } from "@/data/quizzes";
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import SectionContainer from "./SectionContainer";
-import QuestionContainer from "./QuestionContainer";
-import RightPanel from "./RightPanel";
-import SubmitModal from "./SubmitModal";
-import ViolationWarning from "./ViolationWarning";
-import QuizNavbar from "./QuizNavbar";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
-  BookmarkCheck,
-  Bookmark,
-  CheckCheck,
-  Check,
-  LogOut,
+  Clock,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  Send,
 } from "lucide-react";
-import Link from "next/link";
 
-type Props = {
-  quizData: QuizSeed;
-  quiz: Quiz;
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type Option = {
+  id: string;
+  text: string;
+  order: number;
 };
 
-type QuestionAnswer = {
-  selectedOption: number | null;
-  selectedOptions: number[];
-  markedForReview: boolean;
-  isSaved: boolean;
+type Question = {
+  id: string;
+  text: string;
+  questionType: "SINGLE_OPTION" | "MCQ" | "TRUE_FALSE";
+  points: number;
+  order: number;
+  options: Option[];
 };
 
-type AnswerState = { [questionId: number]: QuestionAnswer };
-
-const DEFAULT_ANSWER: QuestionAnswer = {
-  selectedOption: null,
-  selectedOptions: [],
-  markedForReview: false,
-  isSaved: false,
+type Section = {
+  id: string;
+  title: string;
+  timeLimit: number | null;
+  questions: Question[];
 };
 
-export default function QuizAttemptClient({ quizData, quiz }: Props) {
-  // ── Navigation ──────────────────────────────────────────────────────────
-  const [curSectionId, setCurSectionId] = useState(
-    quizData.sections[0]?.section_id,
-  );
-  const [curQuestionId, setCurQuestionId] = useState<number>(
-    quizData.sections[0]?.questions[0]?.question_id ?? 1,
-  );
-  const [answers, setAnswers] = useState<AnswerState>({});
+type Quiz = {
+  id: string;
+  title: string;
+  totalTimeLimit: number | null;
+  correctPoints: number;
+  wrongPoints: number;
+  sections: Section[];
+};
 
-  // ── UI ───────────────────────────────────────────────────────────────────
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [submitReason, setSubmitReason] = useState<
-    "manual" | "timer" | "violation"
-  >("manual");
+type Answer = {
+  questionId: string;
+  optionId?: string;
+  selectedOptions?: string[];
+};
 
-  // ── Violations ──────────────────────────────────────────────────────────
-  const [violations, setViolations] = useState(0);
-  const [showViolation, setShowViolation] = useState(false);
-  const [violationReason, setViolationReason] = useState("");
-  const MAX_VIOLATIONS = 3;
-  const submittedRef = useRef(false);
+// ─── Timer ───────────────────────────────────────────────────────────────────
 
-  const doSubmit = useCallback(
-    (reason: "manual" | "timer" | "violation") => {
-      if (submittedRef.current) return;
-      submittedRef.current = true;
-      setSubmitReason(reason);
-      setShowSubmitModal(false);
-      setShowViolation(false);
-      setSubmitted(true);
-      // Clear the session timer so it resets on next attempt
-      sessionStorage.removeItem(`quiz_timer_end_${quiz.duration}`);
-    },
-    [quiz.duration],
-  );
+function useTimer(totalSeconds: number | null, onExpire: () => void) {
+  const [remaining, setRemaining] = useState<number | null>(totalSeconds);
+  const expiredRef = useRef(false);
 
-  const handleViolation = useCallback(
-    (reason: string) => {
-      if (submittedRef.current) return;
-      setViolations((prev) => {
-        const next = prev + 1;
-        setViolationReason(reason);
-        setShowViolation(true);
-        if (next >= MAX_VIOLATIONS) {
-          setTimeout(() => doSubmit("violation"), 2500);
-        }
-        return next;
-      });
-    },
-    [doSubmit],
-  );
-
-  // ── Tab visibility ──────────────────────────────────────────────────────
   useEffect(() => {
-    const handler = () => {
-      if (document.hidden)
-        handleViolation("You switched tabs or minimised the window.");
-    };
-    document.addEventListener("visibilitychange", handler);
-    return () => document.removeEventListener("visibilitychange", handler);
-  }, [handleViolation]);
-
-  // ── Fullscreen ──────────────────────────────────────────────────────────
-  const reRequestFullscreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement)
-        await document.documentElement.requestFullscreen();
-    } catch {
-      /* denied */
+    if (remaining === null) return;
+    if (remaining <= 0 && !expiredRef.current) {
+      expiredRef.current = true;
+      onExpire();
+      return;
     }
-  }, []);
+    const t = setTimeout(
+      () => setRemaining((r) => (r !== null ? r - 1 : null)),
+      1000,
+    );
+    return () => clearTimeout(t);
+  }, [remaining, onExpire]);
 
+  const fmt = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  return { remaining, display: remaining !== null ? fmt(remaining) : null };
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function QuizAttemptClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const attemptId = searchParams.get("attemptId");
+  const quizId = searchParams.get("quizId"); // fallback if coming directly
+
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [loadedAttemptId, setLoadedAttemptId] = useState<string | null>(
+    attemptId,
+  );
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState<{
+    totalScore: number;
+    maxScore: number;
+    percentageScore: number;
+    passed: boolean;
+    showResultsImmediately: boolean;
+  } | null>(null);
+
+  // Flat list of all questions across sections
+  const [allQuestions, setAllQuestions] = useState<
+    (Question & { sectionTitle: string })[]
+  >([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [answers, setAnswers] = useState<Map<string, Answer>>(new Map());
+  const startTimeRef = useRef<number>(Date.now());
+
+  // Load quiz — if attemptId given use it; else start new attempt
   useEffect(() => {
-    const handler = () => {
-      if (!document.fullscreenElement && !submittedRef.current) {
-        handleViolation("You exited fullscreen mode.");
-        reRequestFullscreen();
+    if (!attemptId && !quizId) {
+      setError("No quiz specified");
+      setLoading(false);
+      return;
+    }
+
+    const loadQuiz = async () => {
+      try {
+        let resolvedAttemptId = attemptId;
+        let quizData: Quiz;
+
+        if (!resolvedAttemptId && quizId) {
+          // Start a new attempt
+          const res = await fetch("/api/quiz_attempt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ quizId }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "Failed to start attempt");
+          resolvedAttemptId = data.attemptId;
+          quizData = data.quiz;
+          setLoadedAttemptId(resolvedAttemptId);
+          // Update URL without reload
+          window.history.replaceState(
+            {},
+            "",
+            `/quiz_attempt?attemptId=${resolvedAttemptId}`,
+          );
+        } else {
+          // Fetch quiz via attempt — we need a way to get quiz from attemptId
+          // Use GET /api/quiz_attempt/[id]
+          const res = await fetch(`/api/quiz_attempt/${resolvedAttemptId}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "Failed to load attempt");
+          quizData = data.quiz;
+        }
+
+        setQuiz(quizData);
+
+        // Flatten questions
+        const flat: (Question & { sectionTitle: string })[] = [];
+        for (const section of quizData.sections) {
+          for (const q of section.questions) {
+            flat.push({ ...q, sectionTitle: section.title });
+          }
+        }
+        setAllQuestions(flat);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to load quiz");
+      } finally {
+        setLoading(false);
       }
     };
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
-  }, [handleViolation, reRequestFullscreen]);
 
-  // ── Block copy / right-click / shortcuts ─────────────────────────────────
-  useEffect(() => {
-    const onCtx = (e: MouseEvent) => e.preventDefault();
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        (e.ctrlKey &&
-          ["c", "v", "u", "a", "s", "p"].includes(e.key.toLowerCase())) ||
-        e.key === "F12" ||
-        (e.altKey && e.key === "Tab")
-      )
-        e.preventDefault();
-    };
-    document.addEventListener("contextmenu", onCtx);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("contextmenu", onCtx);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, []);
+    loadQuiz();
+  }, [attemptId, quizId]);
 
-  // ── Derived ─────────────────────────────────────────────────────────────
-  const curSection = useMemo(
-    () => quizData.sections.find((s) => s.section_id === curSectionId),
-    [quizData.sections, curSectionId],
-  );
-  const curQuestion = useMemo(
-    () => curSection?.questions.find((q) => q.question_id === curQuestionId),
-    [curSection, curQuestionId],
-  );
+  const handleSubmit = useCallback(async () => {
+    if (!loadedAttemptId || submitting) return;
+    setSubmitting(true);
+    setError(null);
 
-  if (!curSection || !curQuestion) return null;
+    const timeSpent = Math.round((Date.now() - startTimeRef.current) / 1000);
+    const answersPayload = Array.from(answers.values());
 
-  const curAnswer: QuestionAnswer =
-    answers[curQuestion.question_id] ?? DEFAULT_ANSWER;
-  const curIdx = curSection.questions.findIndex(
-    (q) => q.question_id === curQuestion.question_id,
-  );
-  const isFirst = curIdx === 0;
-  const isLast = curIdx === curSection.questions.length - 1;
-  const isAnswered =
-    curQuestion.questionType === "MCQ"
-      ? curAnswer.selectedOptions.length > 0
-      : curAnswer.selectedOption !== null;
-
-  // ── Answer handlers ─────────────────────────────────────────────────────
-  const handleSingleChange = (optionId: number | null) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [curQuestion.question_id]: {
-        ...(prev[curQuestion.question_id] ?? DEFAULT_ANSWER),
-        selectedOption: optionId,
-        isSaved: false,
-      },
-    }));
-  };
-  const handleMultiChange = (optionIds: number[]) => {
-    setAnswers((prev) => ({
-      ...prev,
-      [curQuestion.question_id]: {
-        ...(prev[curQuestion.question_id] ?? DEFAULT_ANSWER),
-        selectedOptions: optionIds,
-        isSaved: false,
-      },
-    }));
-  };
-  const handleSave = () => {
-    setAnswers((prev) => ({
-      ...prev,
-      [curQuestion.question_id]: {
-        ...(prev[curQuestion.question_id] ?? DEFAULT_ANSWER),
-        isSaved: true,
-      },
-    }));
-  };
-  const handlePrevious = () => {
-    if (curIdx > 0)
-      setCurQuestionId(curSection.questions[curIdx - 1].question_id);
-  };
-  const handleNext = () => {
-    if (curIdx < curSection.questions.length - 1)
-      setCurQuestionId(curSection.questions[curIdx + 1].question_id);
-  };
-  const handleSaveAndNext = () => {
-    if (isAnswered) handleSave();
-    handleNext();
-  };
-  const toggleMarkForReview = () => {
-    setAnswers((prev) => ({
-      ...prev,
-      [curQuestion.question_id]: {
-        ...(prev[curQuestion.question_id] ?? DEFAULT_ANSWER),
-        markedForReview: !curAnswer.markedForReview,
-      },
-    }));
-  };
-
-  // ── Score computation ────────────────────────────────────────────────────
-  const computeResults = () => {
-    let score = 0;
-    let maxScore = 0;
-    const breakdown: {
-      questionId: number;
-      questionText: string;
-      correct: boolean;
-      pointsEarned: number;
-      points: number;
-      explanation?: string;
-    }[] = [];
-
-    quizData.sections.forEach((section) => {
-      section.questions.forEach((q) => {
-        maxScore += q.points;
-        const ans = answers[q.question_id] ?? DEFAULT_ANSWER;
-        let correct = false;
-
-        if (q.questionType === "MCQ") {
-          const correctIds =
-            q.options?.filter((o) => o.isCorrect).map((o) => o.optionId) ?? [];
-          correct =
-            correctIds.length === ans.selectedOptions.length &&
-            correctIds.every((id) => ans.selectedOptions.includes(id));
-        } else {
-          const correctOpt = q.options?.find((o) => o.isCorrect);
-          correct = correctOpt?.optionId === ans.selectedOption;
-        }
-
-        const earned = correct ? q.points : 0;
-        score += earned;
-        breakdown.push({
-          questionId: q.question_id,
-          questionText: q.questionText,
-          correct,
-          pointsEarned: earned,
-          points: q.points,
-          explanation: q.explanation,
-        });
+    try {
+      const res = await fetch(`/api/quiz_attempt/${loadedAttemptId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: answersPayload, timeSpent }),
       });
-    });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to submit");
+      setResult(data);
+      setSubmitted(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Submission failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [loadedAttemptId, answers, submitting]);
 
-    return { score, maxScore, breakdown };
+  const { display: timerDisplay, remaining } = useTimer(
+    quiz?.totalTimeLimit ? quiz.totalTimeLimit * 60 : null,
+    handleSubmit,
+  );
+
+  const setAnswer = (
+    questionId: string,
+    answer: Omit<Answer, "questionId">,
+  ) => {
+    setAnswers((prev) =>
+      new Map(prev).set(questionId, { questionId, ...answer }),
+    );
   };
 
-  // ── Results screen ────────────────────────────────────────────────────────
-  if (submitted) {
-    const { score, maxScore, breakdown } = computeResults();
-    const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-    const passed = pct >= 60;
-
+  if (loading) {
     return (
-      <div className="flex flex-col h-screen bg-black text-white">
-        {/* Slim results header */}
-        <div className="shrink-0 h-14 bg-neutral-900 border-b border-white/10 flex items-center px-8 gap-3">
-          <span className="text-sm text-gray-400">Results for</span>
-          <span className="text-sm font-semibold text-white">{quiz.title}</span>
-          {submitReason !== "manual" && (
-            <span className="ml-auto text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-1 rounded-full">
-              {submitReason === "timer"
-                ? "⏱ Time expired"
-                : "⚠ Auto-submitted: violations"}
-            </span>
-          )}
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="animate-spin text-amber-400" size={28} />
+      </div>
+    );
+  }
+
+  if (error && !quiz) {
+    return (
+      <div className="p-6 max-w-xl">
+        <div className="flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+          <AlertCircle size={18} />
+          <span>{error}</span>
         </div>
+        <button
+          onClick={() => router.back()}
+          className="mt-4 text-sm text-gray-400 hover:text-white flex items-center gap-1"
+        >
+          <ChevronLeft size={14} /> Go back
+        </button>
+      </div>
+    );
+  }
 
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-3xl mx-auto flex flex-col gap-6">
-            {/* Score card */}
-            <div
-              className={`rounded-2xl p-8 border text-center ${
-                passed
-                  ? "bg-emerald-500/10 border-emerald-500/30"
-                  : "bg-red-500/10 border-red-500/30"
-              }`}
+  // ── Submitted / result screen ───────────────────────────────────────────────
+  if (submitted && result) {
+    const pct = Math.round(result.percentageScore);
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 gap-6">
+        <div
+          className={`w-32 h-32 rounded-full flex flex-col items-center justify-center border-4 ${result.passed ? "border-emerald-500 bg-emerald-500/10" : "border-red-500 bg-red-500/10"}`}
+        >
+          <span
+            className={`text-3xl font-black ${result.passed ? "text-emerald-400" : "text-red-400"}`}
+          >
+            {pct}%
+          </span>
+          <span
+            className={`text-xs font-medium ${result.passed ? "text-emerald-500" : "text-red-500"}`}
+          >
+            {result.passed ? "Passed" : "Failed"}
+          </span>
+        </div>
+        <div className="text-center">
+          <h2 className="text-2xl font-black text-white">Quiz Submitted!</h2>
+          <p className="text-gray-400 mt-2">
+            You scored {result.totalScore} / {result.maxScore} points
+          </p>
+        </div>
+        <div className="flex gap-3">
+          {result.showResultsImmediately && loadedAttemptId && (
+            <button
+              onClick={() =>
+                router.push(`/dashboard/results/${loadedAttemptId}`)
+              }
+              className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-xl px-6 py-3 transition"
             >
-              <div
-                className={`text-7xl font-black mb-2 ${passed ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {pct}%
-              </div>
-              <div className="text-2xl font-bold text-white mb-2">
-                {passed ? "🎉 Passed!" : "❌ Not Passed"}
-              </div>
-              <div className="text-gray-400 text-sm">
-                {score} / {maxScore} points
-              </div>
-              <div className="mt-4 w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-1000 ${passed ? "bg-emerald-500" : "bg-red-500"}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Stat row */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-neutral-900 border border-white/5 rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold text-white">
-                  {breakdown.length}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  Total Questions
-                </div>
-              </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold text-emerald-400">
-                  {breakdown.filter((b) => b.correct).length}
-                </div>
-                <div className="text-xs text-emerald-500 mt-1">Correct</div>
-              </div>
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold text-red-400">
-                  {breakdown.filter((b) => !b.correct).length}
-                </div>
-                <div className="text-xs text-red-500 mt-1">Incorrect</div>
-              </div>
-            </div>
-
-            {/* Breakdown */}
-            <h2 className="text-lg font-bold">Answer Breakdown</h2>
-            <div className="flex flex-col gap-3">
-              {breakdown.map((item, i) => (
-                <div
-                  key={item.questionId}
-                  className={`rounded-xl p-5 border ${
-                    item.correct
-                      ? "bg-emerald-500/5 border-emerald-500/20"
-                      : "bg-red-500/5 border-red-500/20"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <p className="text-sm text-white">
-                      <span className="text-gray-500 mr-2">Q{i + 1}.</span>
-                      {item.questionText}
-                    </p>
-                    <span
-                      className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full ${
-                        item.correct
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-red-500/20 text-red-400"
-                      }`}
-                    >
-                      {item.correct ? `+${item.pointsEarned}` : "0"} /{" "}
-                      {item.points}
-                    </span>
-                  </div>
-                  {item.explanation && (
-                    <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-white/5">
-                      💡 {item.explanation}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="text-center pb-8">
-              <Link
-                href="/dashboard/quizzes"
-                className="inline-block px-8 py-3 bg-amber-400 text-black font-bold rounded-xl hover:bg-amber-300 transition"
-              >
-                Back to My Quizzes
-              </Link>
-            </div>
-          </div>
+              <CheckCircle2 size={16} /> View Results
+            </button>
+          )}
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-2 bg-neutral-800 hover:bg-white/10 text-white font-semibold rounded-xl px-6 py-3 transition"
+          >
+            Dashboard
+          </button>
         </div>
       </div>
     );
   }
 
-  // ── Quiz attempt UI ──────────────────────────────────────────────────────
+  if (!quiz || allQuestions.length === 0) return null;
+
+  const current = allQuestions[currentIdx];
+  const currentAnswer = answers.get(current.id);
+  const answered = answers.size;
+  const total = allQuestions.length;
+  const progressPct = (answered / total) * 100;
+
+  const isLast = currentIdx === allQuestions.length - 1;
+  const timerWarning = remaining !== null && remaining < 60;
+
   return (
-    <div className="flex flex-col h-screen text-white overflow-hidden bg-black">
-      {/* Navbar owns the timer so onExpire can trigger submit */}
-      <QuizNavbar
-        quiz={quiz}
-        durationMinutes={quiz.duration}
-        onTimerExpire={() => doSubmit("timer")}
-      />
-
-      {/* Violation overlay */}
-      {showViolation && (
-        <ViolationWarning
-          reason={violationReason}
-          current={violations}
-          max={MAX_VIOLATIONS}
-          onDismiss={() => setShowViolation(false)}
-        />
-      )}
-
-      {/* Submit modal */}
-      {showSubmitModal && (
-        <SubmitModal
-          quizData={quizData}
-          answers={answers}
-          onConfirm={() => doSubmit("manual")}
-          onCancel={() => setShowSubmitModal(false)}
-        />
-      )}
-
-      <div className="flex flex-1 min-h-0 w-full">
-        {/* LEFT PANEL */}
-        <div className="flex flex-col w-3/4 min-h-0 border-r border-white/30 p-2 relative">
-          <SectionContainer
-            sections={quizData.sections}
-            curSectionId={curSectionId}
-            setCurSectionId={(id) => {
-              setCurSectionId(id);
-              const section = quizData.sections.find(
-                (s) => s.section_id === id,
-              );
-              if (section?.questions[0])
-                setCurQuestionId(section.questions[0].question_id);
-            }}
-          />
-
-          <div className="flex-1 overflow-y-auto no-scrollbar p-2 pb-28">
-            <QuestionContainer
-              question={curQuestion}
-              selectedOption={curAnswer.selectedOption}
-              selectedOptions={curAnswer.selectedOptions}
-              onSingleChange={handleSingleChange}
-              onMultiChange={handleMultiChange}
-            />
-          </div>
-
-          {/* ── Action Bar ── */}
-          <div className="absolute bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur-md border-t border-white/10 px-5 py-3 flex items-center justify-between gap-3">
-            <button
-              onClick={handlePrevious}
-              disabled={isFirst}
-              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-neutral-900 text-gray-300 text-sm font-medium
-                hover:border-white/25 hover:text-white hover:bg-neutral-800
-                disabled:opacity-30 disabled:cursor-not-allowed
-                transition-all duration-150"
+    <div className="flex flex-col h-full min-h-screen bg-neutral-950">
+      {/* ── Top bar ── */}
+      <div className="sticky top-0 z-10 bg-neutral-950/95 backdrop-blur border-b border-white/8 px-4 md:px-6 py-3 flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <h1 className="text-white font-bold text-sm truncate">
+            {quiz.title}
+          </h1>
+          <p className="text-xs text-gray-500">
+            Question {currentIdx + 1} of {total} · {answered} answered
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {timerDisplay && (
+            <div
+              className={`flex items-center gap-1.5 font-mono font-bold text-sm px-3 py-1.5 rounded-xl border ${timerWarning ? "text-red-400 bg-red-500/10 border-red-500/30 animate-pulse" : "text-amber-400 bg-amber-400/10 border-amber-400/20"}`}
             >
-              <ChevronLeft
-                size={16}
-                className="transition-transform duration-150 group-hover:-translate-x-0.5"
-              />
-              Prev
-            </button>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleMarkForReview}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all duration-150
-                  ${
-                    curAnswer.markedForReview
-                      ? "bg-amber-400/15 border-amber-400/50 text-amber-300 hover:bg-amber-400/20"
-                      : "bg-neutral-900 border-white/10 text-gray-400 hover:border-amber-400/40 hover:text-amber-300 hover:bg-amber-400/5"
-                  }`}
-              >
-                {curAnswer.markedForReview ? (
-                  <BookmarkCheck size={15} className="shrink-0" />
-                ) : (
-                  <Bookmark size={15} className="shrink-0" />
-                )}
-                {curAnswer.markedForReview ? "Marked" : "Review"}
-              </button>
-
-              <span className="w-px h-6 bg-white/10 rounded-full" />
-
-              <button
-                onClick={handleSave}
-                disabled={!isAnswered || curAnswer.isSaved}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border transition-all duration-150
-                  ${
-                    curAnswer.isSaved
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-default"
-                      : isAnswered
-                        ? "bg-emerald-500 border-emerald-400 text-black hover:bg-emerald-400 active:scale-95"
-                        : "bg-neutral-900 border-white/5 text-neutral-600 cursor-not-allowed"
-                  }`}
-              >
-                {curAnswer.isSaved ? (
-                  <>
-                    <CheckCheck size={15} className="shrink-0" /> Saved
-                  </>
-                ) : (
-                  <>
-                    <Check size={15} className="shrink-0" /> Save
-                  </>
-                )}
-              </button>
-
-              <span className="w-px h-6 bg-white/10 rounded-full" />
-
-              <button
-                onClick={() => setShowSubmitModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-red-500/40 bg-red-500/10 text-red-400
-                  hover:bg-red-500/20 hover:border-red-500/60 transition-all duration-150"
-              >
-                <LogOut size={15} className="shrink-0" />
-                Submit
-              </button>
+              <Clock size={13} />
+              {timerDisplay}
             </div>
+          )}
+        </div>
+      </div>
 
-            <button
-              onClick={handleSaveAndNext}
-              disabled={isLast}
-              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-neutral-900 text-gray-300 text-sm font-medium
-                hover:border-white/25 hover:text-white hover:bg-neutral-800
-                disabled:opacity-30 disabled:cursor-not-allowed
-                transition-all duration-150"
-            >
-              Next
-              <ChevronRight
-                size={16}
-                className="transition-transform duration-150 group-hover:translate-x-0.5"
-              />
-            </button>
+      {/* ── Progress bar ── */}
+      <div className="h-1 bg-neutral-900">
+        <div
+          className="h-full bg-amber-400 transition-all duration-300"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+
+      {/* ── Question ── */}
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 max-w-3xl mx-auto w-full">
+        {/* Section label */}
+        <p className="text-xs text-gray-600 font-medium uppercase tracking-wider mb-2">
+          {current.sectionTitle}
+        </p>
+
+        <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6 mb-4">
+          <div className="flex items-start justify-between gap-3 mb-6">
+            <p className="text-white text-base leading-relaxed">
+              {current.text}
+            </p>
+            <span className="shrink-0 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-2 py-0.5 font-semibold">
+              {current.points}pt{current.points !== 1 ? "s" : ""}
+            </span>
           </div>
+
+          {/* Options */}
+          <div className="flex flex-col gap-2">
+            {current.options.map((opt) => {
+              const isMCQ = current.questionType === "MCQ";
+              const isSelected = isMCQ
+                ? (currentAnswer?.selectedOptions?.includes(opt.id) ?? false)
+                : currentAnswer?.optionId === opt.id;
+
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    if (isMCQ) {
+                      const prev = currentAnswer?.selectedOptions ?? [];
+                      const next = prev.includes(opt.id)
+                        ? prev.filter((id) => id !== opt.id)
+                        : [...prev, opt.id];
+                      setAnswer(current.id, { selectedOptions: next });
+                    } else {
+                      setAnswer(current.id, { optionId: opt.id });
+                    }
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition ${
+                    isSelected
+                      ? "bg-amber-400/10 border-amber-400/60 text-amber-300 font-medium"
+                      : "bg-neutral-800/50 border-white/8 text-gray-300 hover:border-white/20 hover:bg-neutral-800"
+                  }`}
+                >
+                  <span
+                    className={`inline-flex items-center justify-center w-5 h-5 rounded-${isMCQ ? "sm" : "full"} border mr-3 text-xs font-bold flex-shrink-0 ${
+                      isSelected
+                        ? "bg-amber-400 border-amber-400 text-black"
+                        : "border-gray-600"
+                    }`}
+                  >
+                    {isSelected ? "✓" : ""}
+                  </span>
+                  {opt.text}
+                </button>
+              );
+            })}
+          </div>
+
+          {current.questionType === "MCQ" && (
+            <p className="text-xs text-gray-600 mt-3">Select all that apply</p>
+          )}
         </div>
 
-        {/* RIGHT PANEL */}
-        <div className="w-1/4 min-h-0">
-          <RightPanel
-            questions={curSection.questions}
-            curQuestionId={curQuestion.question_id}
-            setCurQuestionId={setCurQuestionId}
-            answers={answers}
-          />
+        {/* Question navigator */}
+        <div className="flex flex-wrap gap-1.5 mb-6">
+          {allQuestions.map((q, i) => {
+            const isAns = answers.has(q.id);
+            const isCurr = i === currentIdx;
+            return (
+              <button
+                key={q.id}
+                onClick={() => setCurrentIdx(i)}
+                className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                  isCurr
+                    ? "bg-amber-400 text-black"
+                    : isAns
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                      : "bg-neutral-800 text-gray-500 hover:bg-neutral-700"
+                }`}
+              >
+                {i + 1}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm mb-4">
+            <AlertCircle size={15} />
+            {error}
+          </div>
+        )}
+
+        {/* Navigation */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setCurrentIdx((i) => Math.max(0, i - 1))}
+            disabled={currentIdx === 0}
+            className="flex items-center gap-1 text-sm font-semibold text-gray-400 hover:text-white disabled:opacity-30 transition px-3 py-2"
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+
+          {isLast ? (
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-black font-bold rounded-xl px-6 py-3 transition"
+            >
+              {submitting ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Send size={16} />
+              )}
+              {submitting
+                ? "Submitting…"
+                : `Submit Quiz (${answered}/${total} answered)`}
+            </button>
+          ) : (
+            <button
+              onClick={() =>
+                setCurrentIdx((i) => Math.min(allQuestions.length - 1, i + 1))
+              }
+              className="flex items-center gap-1 text-sm font-semibold text-amber-400 hover:text-amber-300 transition px-3 py-2"
+            >
+              Next <ChevronRight size={16} />
+            </button>
+          )}
         </div>
       </div>
     </div>
