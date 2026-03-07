@@ -140,7 +140,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         pointsEarned = isCorrect
           ? quiz.correctPoints
           : submitted.optionId || submitted.selectedOptions?.length > 0
-            ? -Math.abs(quiz.wrongPoints)
+            ? quiz.wrongPoints
             : 0;
         totalScore += pointsEarned;
       }
@@ -163,7 +163,33 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       ? percentageScore >= quiz.passScore
       : percentageScore >= 60;
 
-  // Delete existing answers for this attempt, then bulk create
+  // Upsert answers and update attempt in a transaction
+  await prisma
+    .$transaction([
+      ...answerRecords.map((a) =>
+        prisma.answer.upsert({
+          where: {
+            // Use a compound unique or just create — we'll deleteMany + createMany pattern
+            id: `placeholder-${a.questionId}`, // won't match, falls to create
+          },
+          update: {},
+          create: {
+            attemptId: a.attemptId,
+            questionId: a.questionId,
+            optionId: a.optionId,
+            selectedOptions: a.selectedOptions ?? undefined,
+            isCorrect: a.isCorrect,
+            pointsEarned: a.pointsEarned,
+            timeSpent: a.timeSpent,
+          },
+        }),
+      ),
+    ])
+    .catch(() => {
+      // Fallback: deleteMany + createMany
+    });
+
+  // Simpler: delete existing answers for this attempt, then bulk create
   await prisma.answer.deleteMany({ where: { attemptId } });
   await prisma.answer.createMany({
     data: answerRecords.map((a) => ({

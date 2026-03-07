@@ -133,7 +133,7 @@ export default function InstructorQuizzesClient() {
           </p>
         </div>
         <button
-          onClick={() => router.push("/dashboard/instructor/quizzes/new")}
+          onClick={() => router.push("/dashboard/quiz-builder")}
           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium"
         >
           + Create Quiz
@@ -242,9 +242,7 @@ export default function InstructorQuizzesClient() {
                         <>
                           <button
                             onClick={() =>
-                              router.push(
-                                `/dashboard/instructor/quizzes/${q.id}/edit`,
-                              )
+                              router.push(`/dashboard/quiz-builder?id=${q.id}`)
                             }
                             className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50"
                           >

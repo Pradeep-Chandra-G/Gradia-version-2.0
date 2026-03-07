@@ -56,11 +56,7 @@ function StatCard({
   );
 }
 
-export default function InstructorDashboard({
-  firstName,
-}: {
-  firstName?: string;
-}) {
+export default function InstructorDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentQuizzes, setRecentQuizzes] = useState<RecentQuiz[]>([]);
@@ -98,13 +94,11 @@ export default function InstructorDashboard({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {firstName ? `Welcome back, ${firstName}` : "Dashboard"}
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">Your teaching overview</p>
         </div>
         <button
-          onClick={() => router.push("/dashboard/instructor/quizzes/new")}
+          onClick={() => router.push("/dashboard/quiz-builder")}
           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium"
         >
           + Create Quiz
@@ -166,7 +160,7 @@ export default function InstructorDashboard({
             Recent Quizzes
           </h2>
           <button
-            onClick={() => router.push("/dashboard/instructor/quizzes")}
+            onClick={() => router.push("/dashboard/quizzes")}
             className="text-sm text-amber-600 hover:underline"
           >
             View all →
@@ -177,7 +171,7 @@ export default function InstructorDashboard({
           <div className="bg-white rounded-xl border border-gray-200 py-16 text-center text-gray-400">
             No quizzes yet.{" "}
             <button
-              onClick={() => router.push("/dashboard/instructor/quizzes/new")}
+              onClick={() => router.push("/dashboard/quiz-builder")}
               className="text-amber-600 hover:underline"
             >
               Create your first quiz
@@ -213,9 +207,7 @@ export default function InstructorDashboard({
                   <tr
                     key={q.id}
                     className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                    onClick={() =>
-                      router.push(`/dashboard/instructor/quizzes/${q.id}`)
-                    }
+                    onClick={() => router.push(`/dashboard/quizzes`)}
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">
                       {q.title}

@@ -59,42 +59,37 @@ export default function InstructorResultsClient() {
     (s) =>
       s.studentName.toLowerCase().includes(search.toLowerCase()) ||
       s.quizTitle.toLowerCase().includes(search.toLowerCase()) ||
-      s.quizSubject.toLowerCase().includes(search.toLowerCase()),
+      s.quizSubject.toLowerCase().includes(search.toLowerCase())
   );
 
   const filteredSummaries = quizSummaries.filter(
     (q) =>
       q.quizTitle.toLowerCase().includes(search.toLowerCase()) ||
-      q.quizSubject.toLowerCase().includes(search.toLowerCase()),
+      q.quizSubject.toLowerCase().includes(search.toLowerCase())
   );
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Loading results…
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20 text-gray-400">Loading results…</div>;
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Results</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Results</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          {submissions.length} total submission
-          {submissions.length !== 1 ? "s" : ""}
+          {submissions.length} total submission{submissions.length !== 1 ? "s" : ""}
         </p>
       </div>
 
       {/* View toggle + search */}
       <div className="flex gap-3">
-        <div className="flex rounded-lg border border-white/10 overflow-hidden">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
           <button
             className={`px-4 py-2 text-sm font-medium ${
               view === "summary"
                 ? "bg-amber-500 text-white"
-                : "bg-neutral-900 text-gray-600 hover:bg-neutral-800"
+                : "bg-white text-gray-600 hover:bg-gray-50"
             }`}
             onClick={() => setView("summary")}
           >
@@ -104,7 +99,7 @@ export default function InstructorResultsClient() {
             className={`px-4 py-2 text-sm font-medium ${
               view === "submissions"
                 ? "bg-amber-500 text-white"
-                : "bg-neutral-900 text-gray-600 hover:bg-neutral-800"
+                : "bg-white text-gray-600 hover:bg-gray-50"
             }`}
             onClick={() => setView("submissions")}
           >
@@ -112,7 +107,7 @@ export default function InstructorResultsClient() {
           </button>
         </div>
         <input
-          className="flex-1 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
           placeholder="Search…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -121,67 +116,42 @@ export default function InstructorResultsClient() {
 
       {/* By Quiz */}
       {view === "summary" && (
-        <div className="bg-neutral-900 rounded-xl border border-white/10 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {filteredSummaries.length === 0 ? (
-            <div className="py-20 text-center text-gray-400">
-              No results yet.
-            </div>
+            <div className="py-20 text-center text-gray-400">No results yet.</div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-neutral-800 border-b border-white/10">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Quiz
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Subject
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Batches
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Status
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Attempts
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Avg Score
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Pass Rate
-                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Quiz</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Subject</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Batches</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Attempts</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Avg Score</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Pass Rate</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSummaries.map((q) => (
-                  <tr
-                    key={q.quizId}
-                    className="border-b border-white/8 hover:bg-neutral-800"
-                  >
-                    <td className="px-4 py-3 font-medium text-white">
-                      {q.quizTitle}
-                    </td>
+                  <tr key={q.quizId} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-900">{q.quizTitle}</td>
                     <td className="px-4 py-3 text-gray-600">{q.quizSubject}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {q.batches.join(", ") || "—"}
-                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{q.batches.join(", ") || "—"}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           q.status === "published"
                             ? "bg-green-100 text-green-700"
                             : q.status === "finished"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-neutral-800 text-gray-600"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-gray-100 text-gray-600"
                         }`}
                       >
                         {q.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">
-                      {q.totalAttempts}
-                    </td>
+                    <td className="px-4 py-3 text-right text-gray-600">{q.totalAttempts}</td>
                     <td className="px-4 py-3 text-right">
                       {q.totalAttempts > 0 ? (
                         <span
@@ -218,66 +188,39 @@ export default function InstructorResultsClient() {
 
       {/* All Submissions */}
       {view === "submissions" && (
-        <div className="bg-neutral-900 rounded-xl border border-white/10 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {filteredSubmissions.length === 0 ? (
-            <div className="py-20 text-center text-gray-400">
-              No submissions yet.
-            </div>
+            <div className="py-20 text-center text-gray-400">No submissions yet.</div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-neutral-800 border-b border-white/10">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Student
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Quiz
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Batch
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Score
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    %
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Passed
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Time
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">
-                    Date
-                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Student</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Quiz</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Batch</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Score</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">%</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Passed</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Time</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Date</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSubmissions.map((s) => (
-                  <tr
-                    key={s.id}
-                    className="border-b border-white/8 hover:bg-neutral-800"
-                  >
+                  <tr key={s.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-700 text-xs font-bold flex items-center justify-center">
                           {s.studentAvatar}
                         </div>
                         <div>
-                          <p className="font-medium text-white">
-                            {s.studentName}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {s.studentEmail}
-                          </p>
+                          <p className="font-medium text-gray-900">{s.studentName}</p>
+                          <p className="text-xs text-gray-400">{s.studentEmail}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{s.quizTitle}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {s.batchName}
-                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{s.batchName}</td>
                     <td className="px-4 py-3 text-right text-gray-600">
                       {s.score}/{s.maxScore}
                     </td>

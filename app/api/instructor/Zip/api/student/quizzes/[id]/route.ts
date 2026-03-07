@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
         select: {
           id: true,
           title: true,
-          sectionalTimeLimit: true,
+          timeLimit: true,
           _count: { select: { questions: true } },
         },
       },
@@ -55,10 +55,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       description: quiz.description,
       subject: quiz.subject,
       difficulty: quiz.difficulty,
-      totalQuestions: quiz.sections.reduce(
-        (sum, s) => sum + s._count.questions,
-        0,
-      ),
+      totalQuestions: quiz.totalQuestions,
       totalTimeLimit: quiz.totalTimeLimit,
       beginWindow: quiz.beginWindow,
       endWindow: quiz.endWindow,
@@ -69,7 +66,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       sections: quiz.sections.map((s) => ({
         id: s.id,
         title: s.title,
-        timeLimit: s.sectionalTimeLimit,
+        timeLimit: s.timeLimit,
         questionCount: s._count.questions,
       })),
       attemptStatus: latestAttempt?.status ?? "NOT_STARTED",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -14,43 +14,11 @@ import {
   Award,
   AlertTriangle,
 } from "lucide-react";
-import { useEffect } from "react";
-
-type AnswerSummary = {
-  questionId: string;
-  questionText: string;
-  isCorrect: boolean;
-  pointsEarned: number | null;
-};
-type Submission = {
-  id: string;
-  studentId: string;
-  studentName: string;
-  studentEmail: string;
-  studentAvatar: string;
-  score: number;
-  maxScore: number;
-  percentage: number;
-  passed: boolean;
-  completedAt: string;
-  timeSpent: number;
-  answers: AnswerSummary[];
-  // Derived UI fields
-  pct: number;
-  timeTaken: number;
-  submittedAt: string;
-};
-type QuizMeta = {
-  id: string;
-  title: string;
-  subject: string;
-  status: string;
-  totalAttempts: number;
-  avgScore: number;
-  passRate: number;
-  maxScore: number;
-  batches: string[];
-};
+import {
+  mockSubmissions,
+  mockQuizzes,
+  type Submission,
+} from "@/data/instructorData";
 
 function ScoreRing({ pct, size = 48 }: { pct: number; size?: number }) {
   const r = (size - 6) / 2;
@@ -175,45 +143,20 @@ export default function InstructorQuizResultDetailClient({
 }: {
   quizId: string;
 }) {
-  const [quiz, setQuiz] = useState<QuizMeta | null>(null);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
+  const quiz = mockQuizzes.find((q) => q.id === quizId) ?? mockQuizzes[0];
+  const submissions = mockSubmissions
+    .filter((s) => s.quizId === quizId)
+    .sort((a, b) => b.pct - a.pct);
 
-  useEffect(() => {
-    fetch(`/api/instructor/results/${quizId}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.quiz) setQuiz(d.quiz);
-        if (d.submissions) {
-          const mapped: Submission[] = d.submissions.map((s: any) => ({
-            ...s,
-            pct: s.percentage,
-            timeTaken: Math.round((s.timeSpent ?? 0) / 60),
-            submittedAt: s.completedAt,
-          }));
-          setSubmissions(mapped.sort((a, b) => b.pct - a.pct));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [quizId]);
-
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Loading results…
-      </div>
-    );
-  if (!quiz)
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Quiz not found.
-      </div>
-    );
-
-  const avgScore = quiz.avgScore;
-  const passRate = quiz.passRate;
+  const avgScore = submissions.length
+    ? Math.round(
+        submissions.reduce((a, s) => a + s.pct, 0) / submissions.length,
+      )
+    : 0;
   const passCount = submissions.filter((s) => s.passed).length;
+  const passRate = submissions.length
+    ? Math.round((passCount / submissions.length) * 100)
+    : 0;
   const avgTime = submissions.length
     ? Math.round(
         submissions.reduce((a, s) => a + s.timeTaken, 0) / submissions.length,
@@ -274,15 +217,14 @@ export default function InstructorQuizResultDetailClient({
           >
             {quiz.status}
           </span>
-          {quiz.batches && quiz.batches.length > 0 && (
-            <span className="text-xs text-gray-500">
-              {quiz.batches.join(", ")}
-            </span>
+          {quiz.batchName && (
+            <span className="text-xs text-gray-500">{quiz.batchName}</span>
           )}
         </div>
         <h1 className="text-2xl font-black tracking-tight">{quiz.title}</h1>
         <p className="text-gray-500 text-sm mt-1">
-          {quiz.totalAttempts} submission{quiz.totalAttempts !== 1 ? "s" : ""}
+          {quiz.duration}m · {quiz.submissionCount}/{quiz.totalStudents}{" "}
+          submitted
         </p>
       </div>
 

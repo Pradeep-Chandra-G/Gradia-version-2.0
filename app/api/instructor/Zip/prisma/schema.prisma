@@ -239,7 +239,7 @@ model Section {
   order               Int
   sectionalTimeLimit  Int?     @map("sectional_time_limit")
   sectionalPassScore  Float?   @map("sectional_pass_score")
-  sectionalTotalScore Float    @default(0) @map("sectional_total_score")
+  sectionalTotalScore Float    @map("sectional_total_score")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
   questions           Question[]

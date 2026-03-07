@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -24,44 +24,12 @@ import {
   Check,
   Ban,
 } from "lucide-react";
-import { useEffect } from "react";
-
-type StudentScore = {
-  quizId: string;
-  quizTitle: string;
-  score: number;
-  passed: boolean;
-  completedAt?: string;
-};
-type Student = {
-  id: string;
-  name: string;
-  avatar: string;
-  email: string;
-  joinedAt: string;
-  status: string;
-  scores: StudentScore[];
-};
-type PendingRequest = {
-  id: string;
-  studentName: string;
-  studentEmail: string;
-  studentAvatar: string;
-  requestedAt: string;
-  adminStatus: "awaiting_admin" | "admin_approved" | "admin_rejected";
-};
-type Batch = {
-  id: string;
-  name: string;
-  subject: string;
-  description?: string;
-  color: string;
-  joinCode?: string;
-  createdAt: string;
-  quizCount: number;
-  students: Student[];
-  pendingRequests: PendingRequest[];
-};
+import {
+  mockBatches,
+  type Batch,
+  type Student,
+  type PendingRequest,
+} from "@/data/instructorData";
 
 function avg(arr: number[]) {
   if (!arr.length) return 0;
@@ -380,35 +348,12 @@ export default function InstructorBatchDetailClient({
 }: {
   batchId: string;
 }) {
-  const [batch, setBatch] = useState<Batch | null>(null);
-  const [loading, setLoading] = useState(true);
+  const initial = mockBatches.find((b) => b.id === batchId) ?? mockBatches[0];
+  const [batch, setBatch] = useState<Batch>(initial);
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Student | null>(null);
   const [showPending, setShowPending] = useState(true);
-
-  useEffect(() => {
-    fetch(`/api/instructor/batches/${batchId}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.batch) setBatch(d.batch);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [batchId]);
-
-  if (loading)
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Loading batch…
-      </div>
-    );
-  if (!batch)
-    return (
-      <div className="flex items-center justify-center py-20 text-gray-400">
-        Batch not found.
-      </div>
-    );
 
   const filtered = batch.students.filter(
     (s) =>
@@ -423,94 +368,52 @@ export default function InstructorBatchDetailClient({
     (r) => r.adminStatus === "admin_approved",
   ).length;
 
-  const removeStudent = async (id: string) => {
-    try {
-      await fetch(`/api/instructor/batches/${batchId}/students/${id}`, {
-        method: "DELETE",
-      });
-      setBatch((b) =>
-        b
-          ? {
-              ...b,
-              students: b.students.filter((s) => s.id !== id),
-            }
-          : b,
-      );
-    } catch {}
+  const removeStudent = (id: string) => {
+    setBatch((b) => ({
+      ...b,
+      students: b.students.filter((s) => s.id !== id),
+    }));
   };
 
-  const addStudent = async (reqId: string) => {
-    try {
-      await fetch(`/api/instructor/batches/${batchId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", batchStudentId: reqId }),
-      });
-      const req = batch?.pendingRequests.find((r) => r.id === reqId);
-      if (!req) return;
-      const newStudent: Student = {
-        id: `s-${reqId}`,
-        name: req.studentName,
-        avatar: req.studentAvatar,
-        email: req.studentEmail,
-        joinedAt: new Date().toISOString().split("T")[0],
-        status: "active",
-        scores: [],
-      };
-      setBatch((b) =>
-        b
-          ? {
-              ...b,
-              students: [...b.students, newStudent],
-              pendingRequests: b.pendingRequests.filter((r) => r.id !== reqId),
-            }
-          : b,
-      );
-    } catch {}
+  const addStudent = (reqId: string) => {
+    const req = batch.pendingRequests.find((r) => r.id === reqId);
+    if (!req) return;
+    const newStudent: Student = {
+      id: `s-${reqId}`,
+      name: req.studentName,
+      avatar: req.studentAvatar,
+      email: req.studentEmail,
+      joinedAt: new Date().toISOString().split("T")[0],
+      status: "active",
+      scores: [],
+    };
+    setBatch((b) => ({
+      ...b,
+      students: [...b.students, newStudent],
+      pendingRequests: b.pendingRequests.filter((r) => r.id !== reqId),
+    }));
   };
 
-  const declineRequest = async (reqId: string) => {
-    try {
-      await fetch(`/api/instructor/batches/${batchId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", batchStudentId: reqId }),
-      });
-      setBatch((b) =>
-        b
-          ? {
-              ...b,
-              pendingRequests: b.pendingRequests.filter((r) => r.id !== reqId),
-            }
-          : b,
-      );
-    } catch {}
+  const declineRequest = (reqId: string) => {
+    setBatch((b) => ({
+      ...b,
+      pendingRequests: b.pendingRequests.filter((r) => r.id !== reqId),
+    }));
   };
 
-  const handleInvite = async (email: string) => {
-    try {
-      await fetch(`/api/instructor/batches/${batchId}/invite`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const newReq: PendingRequest = {
-        id: `pr-${Date.now()}`,
-        studentName: email.split("@")[0],
-        studentEmail: email,
-        studentAvatar: email.slice(0, 2).toUpperCase(),
-        requestedAt: new Date().toISOString().split("T")[0],
-        adminStatus: "awaiting_admin",
-      };
-      setBatch((b) =>
-        b
-          ? {
-              ...b,
-              pendingRequests: [newReq, ...b.pendingRequests],
-            }
-          : b,
-      );
-    } catch {}
+  const handleInvite = (email: string) => {
+    const newReq: PendingRequest = {
+      id: `pr-${Date.now()}`,
+      studentName: email.split("@")[0],
+      studentEmail: email,
+      studentAvatar: email.slice(0, 2).toUpperCase(),
+      requestedAt: new Date().toISOString().split("T")[0],
+      adminStatus: "awaiting_admin",
+    };
+    setBatch((b) => ({
+      ...b,
+      pendingRequests: [newReq, ...b.pendingRequests],
+    }));
   };
 
   const batchAvg = avg(batch.students.flatMap((s) => s.scores));

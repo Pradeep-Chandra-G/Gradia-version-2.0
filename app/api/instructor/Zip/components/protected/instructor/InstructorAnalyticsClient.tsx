@@ -53,9 +53,9 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-neutral-900 rounded-xl border border-white/10 p-5">
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
       <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-white mt-1">{value}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   );
@@ -100,7 +100,7 @@ export default function InstructorAnalyticsClient() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-white">Analytics</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           Overview of your teaching activity
         </p>
@@ -128,12 +128,12 @@ export default function InstructorAnalyticsClient() {
       {/* Monthly trend table */}
       {monthlyTrend.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-100 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">
             Monthly Trend
           </h2>
-          <div className="bg-neutral-900 rounded-xl border border-white/10 overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-neutral-800 border-b border-white/10">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Month
@@ -149,7 +149,7 @@ export default function InstructorAnalyticsClient() {
               </thead>
               <tbody>
                 {monthlyTrend.map((m) => (
-                  <tr key={m.month} className="border-b border-white/8">
+                  <tr key={m.month} className="border-b border-gray-100">
                     <td className="px-4 py-3 font-medium text-gray-700">
                       {m.month}
                     </td>
@@ -171,7 +171,7 @@ export default function InstructorAnalyticsClient() {
                     </td>
                     <td className="px-4 py-3">
                       {m.attempts > 0 && (
-                        <div className="w-full bg-neutral-800 rounded-full h-2">
+                        <div className="w-full bg-gray-100 rounded-full h-2">
                           <div
                             className="bg-amber-400 h-2 rounded-full"
                             style={{ width: `${m.avgScore}%` }}
@@ -190,10 +190,10 @@ export default function InstructorAnalyticsClient() {
       {/* Batch analytics */}
       {batchAnalytics.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-100 mb-3">By Batch</h2>
-          <div className="bg-neutral-900 rounded-xl border border-white/10 overflow-hidden">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">By Batch</h2>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-neutral-800 border-b border-white/10">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Batch
@@ -222,9 +222,9 @@ export default function InstructorAnalyticsClient() {
                 {batchAnalytics.map((b) => (
                   <tr
                     key={b.batchId}
-                    className="border-b border-white/8 hover:bg-neutral-800"
+                    className="border-b border-gray-100 hover:bg-gray-50"
                   >
-                    <td className="px-4 py-3 font-medium text-white">
+                    <td className="px-4 py-3 font-medium text-gray-900">
                       {b.batchName}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{b.subject}</td>
@@ -278,10 +278,10 @@ export default function InstructorAnalyticsClient() {
       {/* Quiz analytics */}
       {quizAnalytics.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-100 mb-3">By Quiz</h2>
-          <div className="bg-neutral-900 rounded-xl border border-white/10 overflow-hidden">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">By Quiz</h2>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-neutral-800 border-b border-white/10">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Quiz
@@ -307,9 +307,9 @@ export default function InstructorAnalyticsClient() {
                 {quizAnalytics.map((q) => (
                   <tr
                     key={q.quizId}
-                    className="border-b border-white/8 hover:bg-neutral-800"
+                    className="border-b border-gray-100 hover:bg-gray-50"
                   >
-                    <td className="px-4 py-3 font-medium text-white">
+                    <td className="px-4 py-3 font-medium text-gray-900">
                       {q.quizTitle}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{q.subject}</td>
@@ -320,7 +320,7 @@ export default function InstructorAnalyticsClient() {
                             ? "bg-green-100 text-green-700"
                             : q.status === "finished"
                               ? "bg-blue-100 text-blue-700"
-                              : "bg-neutral-800 text-gray-600"
+                              : "bg-gray-100 text-gray-600"
                         }`}
                       >
                         {q.status}

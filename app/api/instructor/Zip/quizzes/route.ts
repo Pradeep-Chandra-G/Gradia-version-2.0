@@ -204,19 +204,12 @@ export async function POST(req: Request) {
     },
   });
 
-  // Link to batches (verify they belong to the same org first)
+  // Link to batches
   if (body.batchIds && body.batchIds.length > 0) {
-    const validBatches = await prisma.batch.findMany({
-      where: { id: { in: body.batchIds }, orgId: user.orgId },
-      select: { id: true },
+    await prisma.quizBatch.createMany({
+      data: body.batchIds.map((batchId) => ({ quizId: quiz.id, batchId })),
+      skipDuplicates: true,
     });
-    const validIds = validBatches.map((b) => b.id);
-    if (validIds.length > 0) {
-      await prisma.quizBatch.createMany({
-        data: validIds.map((batchId) => ({ quizId: quiz.id, batchId })),
-        skipDuplicates: true,
-      });
-    }
   }
 
   return NextResponse.json(

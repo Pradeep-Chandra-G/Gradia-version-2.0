@@ -11,7 +11,7 @@ async function getDbUser() {
 // GET /api/instructor/results/[quizId]
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ quizId: string }> },
+  { params }: { params: { quizId: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -19,10 +19,8 @@ export async function GET(
   if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { quizId } = await params;
-
   const quiz = await prisma.quiz.findFirst({
-    where: { id: quizId, createdBy: user.id },
+    where: { id: params.quizId, createdBy: user.id },
     include: {
       sections: {
         orderBy: { order: "asc" },

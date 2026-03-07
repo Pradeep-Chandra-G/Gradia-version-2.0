@@ -11,7 +11,7 @@ async function getDbUser() {
 // GET /api/instructor/batches/[id]
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -19,11 +19,9 @@ export async function GET(
   if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { id } = await params;
-
   const batch = await prisma.batch.findFirst({
     where: {
-      id,
+      id: params.id,
       orgId: user.orgId ?? undefined,
       instructors: { some: { instructorId: user.id } },
     },
@@ -38,7 +36,7 @@ export async function GET(
               email: true,
               attempts: {
                 where: {
-                  quiz: { batches: { some: { batchId: id } } },
+                  quiz: { batches: { some: { batchId: params.id } } },
                 },
                 select: {
                   quizId: true,
@@ -166,7 +164,7 @@ export async function GET(
 // PATCH /api/instructor/batches/[id] — approve/reject student
 export async function PATCH(
   req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -186,8 +184,6 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { id } = await params;
-
   // Approve or reject a student
   if (body.action === "approve" || body.action === "reject") {
     if (!body.batchStudentId)
@@ -197,18 +193,12 @@ export async function PATCH(
       );
 
     const bs = await prisma.batchStudent.findFirst({
-      where: { id: body.batchStudentId, batchId: id },
+      where: { id: body.batchStudentId, batchId: params.id },
     });
     if (!bs)
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
 
     if (body.action === "approve") {
-      if (bs.status !== "PENDING_INSTRUCTOR") {
-        return NextResponse.json(
-          { error: "Can only approve students with PENDING_INSTRUCTOR status" },
-          { status: 400 },
-        );
-      }
       await prisma.batchStudent.update({
         where: { id: bs.id },
         data: { status: "ACTIVE", enrolledAt: new Date() },
@@ -225,7 +215,7 @@ export async function PATCH(
   // Update batch metadata
   if (body.name || body.description !== undefined) {
     const updated = await prisma.batch.update({
-      where: { id: id },
+      where: { id: params.id },
       data: {
         ...(body.name ? { name: body.name.trim() } : {}),
         ...(body.description !== undefined

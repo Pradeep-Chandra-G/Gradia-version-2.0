@@ -141,7 +141,7 @@ export default function InstructorBatchesClient() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Batches</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Batches</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {batches.length} batch{batches.length !== 1 ? "es" : ""}
           </p>
@@ -156,15 +156,15 @@ export default function InstructorBatchesClient() {
 
       {/* Create form */}
       {showCreate && (
-        <div className="bg-neutral-900 rounded-xl border border-white/10 p-5 space-y-3">
-          <h3 className="font-semibold text-gray-100">New Batch</h3>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h3 className="font-semibold text-gray-800">New Batch</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">
                 Name *
               </label>
               <input
-                className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 value={form.name}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, name: e.target.value }))
@@ -177,7 +177,7 @@ export default function InstructorBatchesClient() {
                 Subject *
               </label>
               <input
-                className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 value={form.subject}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, subject: e.target.value }))
@@ -191,7 +191,7 @@ export default function InstructorBatchesClient() {
               Description
             </label>
             <input
-              className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               value={form.description}
               onChange={(e) =>
                 setForm((f) => ({ ...f, description: e.target.value }))
@@ -225,7 +225,7 @@ export default function InstructorBatchesClient() {
             </button>
             <button
               onClick={() => setShowCreate(false)}
-              className="px-4 py-2 border border-white/10 rounded-lg text-sm"
+              className="px-4 py-2 border border-gray-200 rounded-lg text-sm"
             >
               Cancel
             </button>
@@ -243,7 +243,7 @@ export default function InstructorBatchesClient() {
           {batches.map((b) => (
             <div
               key={b.id}
-              className="bg-neutral-900 rounded-xl border border-white/10 p-5 cursor-pointer hover:shadow-md transition-shadow"
+              className="bg-white rounded-xl border border-gray-200 p-5 cursor-pointer hover:shadow-md transition-shadow"
               onClick={() => setSelected(b)}
             >
               <div className="flex items-start justify-between mb-3">
@@ -255,7 +255,7 @@ export default function InstructorBatchesClient() {
                   >
                     {b.subject}
                   </span>
-                  <h3 className="font-semibold text-white mt-2">{b.name}</h3>
+                  <h3 className="font-semibold text-gray-900 mt-2">{b.name}</h3>
                   {b.description && (
                     <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
                       {b.description}
@@ -268,7 +268,7 @@ export default function InstructorBatchesClient() {
                   </span>
                 )}
               </div>
-              <div className="flex gap-4 text-sm text-gray-500 border-t border-white/8 pt-3 mt-3">
+              <div className="flex gap-4 text-sm text-gray-500 border-t border-gray-100 pt-3 mt-3">
                 <span>{b.students.length} students</span>
                 <span>{b.quizCount} quizzes</span>
                 {b.avgScore > 0 && <span>{b.avgScore}% avg</span>}
@@ -291,12 +291,12 @@ export default function InstructorBatchesClient() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="bg-neutral-900 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6"
+            className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h2 className="text-xl font-bold text-white">
+                <h2 className="text-xl font-bold text-gray-900">
                   {selected.name}
                 </h2>
                 <p className="text-sm text-gray-500">{selected.subject}</p>
@@ -311,7 +311,7 @@ export default function InstructorBatchesClient() {
 
             <div className="mb-2 text-sm text-gray-500">
               Join code:{" "}
-              <span className="font-mono font-medium text-white bg-neutral-800 px-2 py-0.5 rounded">
+              <span className="font-mono font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
                 {selected.joinCode}
               </span>
             </div>
@@ -333,7 +333,7 @@ export default function InstructorBatchesClient() {
                           {req.studentAvatar}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-gray-100">
+                          <p className="text-sm font-medium text-gray-800">
                             {req.studentName}
                           </p>
                           <p className="text-xs text-gray-500">
@@ -387,7 +387,7 @@ export default function InstructorBatchesClient() {
                       {s.avatar}
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-100">
+                      <p className="text-sm font-medium text-gray-800">
                         {s.name}
                       </p>
                       <p className="text-xs text-gray-400">{s.email}</p>

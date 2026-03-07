@@ -11,7 +11,7 @@ async function getDbUser() {
 // GET /api/instructor/quizzes/[id]
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -19,10 +19,8 @@ export async function GET(
   if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { id } = await params;
-
   const quiz = await prisma.quiz.findFirst({
-    where: { id, createdBy: user.id },
+    where: { id: params.id, createdBy: user.id },
     include: {
       sections: {
         orderBy: { order: "asc" },
@@ -91,7 +89,7 @@ export async function GET(
 // PATCH /api/instructor/quizzes/[id] — update status (publish/close) or metadata
 export async function PATCH(
   req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -99,10 +97,8 @@ export async function PATCH(
   if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { id } = await params;
-
   const existing = await prisma.quiz.findFirst({
-    where: { id, createdBy: user.id },
+    where: { id: params.id, createdBy: user.id },
   });
   if (!existing)
     return NextResponse.json({ error: "Quiz not found" }, { status: 404 });
@@ -139,7 +135,7 @@ export async function PATCH(
   }
 
   const updated = await prisma.quiz.update({
-    where: { id: id },
+    where: { id: params.id },
     data: {
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.title !== undefined ? { title: body.title.trim() } : {}),
@@ -177,10 +173,10 @@ export async function PATCH(
 
   // Update batch assignments if provided
   if (body.batchIds !== undefined) {
-    await prisma.quizBatch.deleteMany({ where: { quizId: id } });
+    await prisma.quizBatch.deleteMany({ where: { quizId: params.id } });
     if (body.batchIds.length > 0) {
       await prisma.quizBatch.createMany({
-        data: body.batchIds.map((batchId) => ({ quizId: id, batchId })),
+        data: body.batchIds.map((batchId) => ({ quizId: params.id, batchId })),
         skipDuplicates: true,
       });
     }
@@ -194,7 +190,7 @@ export async function PATCH(
 // DELETE /api/instructor/quizzes/[id] — only DRAFT quizzes
 export async function DELETE(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   const user = await getDbUser();
   if (!user)
@@ -202,10 +198,8 @@ export async function DELETE(
   if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { id } = await params;
-
   const existing = await prisma.quiz.findFirst({
-    where: { id, createdBy: user.id },
+    where: { id: params.id, createdBy: user.id },
   });
   if (!existing)
     return NextResponse.json({ error: "Quiz not found" }, { status: 404 });
@@ -215,6 +209,6 @@ export async function DELETE(
       { status: 400 },
     );
 
-  await prisma.quiz.delete({ where: { id: id } });
+  await prisma.quiz.delete({ where: { id: params.id } });
   return NextResponse.json({ success: true });
 }

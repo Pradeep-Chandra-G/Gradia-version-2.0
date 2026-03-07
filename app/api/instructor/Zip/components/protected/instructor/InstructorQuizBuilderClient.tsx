@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -88,18 +88,6 @@ export default function InstructorQuizBuilderClient() {
   const [activeSection, setActiveSection] = useState(0);
   const [activeQuestion, setActiveQuestion] = useState<number>(0);
   const [showSettings, setShowSettings] = useState(false);
-  const [availableBatches, setAvailableBatches] = useState<
-    { id: string; name: string; subject: string }[]
-  >([]);
-
-  useEffect(() => {
-    fetch("/api/instructor/batches")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.batches) setAvailableBatches(d.batches);
-      })
-      .catch(() => {});
-  }, []);
 
   const [settings, setSettings] = useState<QuizSettings>({
     title: "",
@@ -195,7 +183,7 @@ export default function InstructorQuizBuilderClient() {
       if (!res.ok) throw new Error(data.error ?? "Failed to save quiz");
 
       toast.success(publish ? "Quiz published!" : "Draft saved!");
-      router.push("/dashboard/instructor/quizzes");
+      router.push("/dashboard/quizzes");
     } catch (err: any) {
       toast.error(err.message ?? "Something went wrong");
     } finally {
@@ -394,7 +382,7 @@ export default function InstructorQuizBuilderClient() {
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push("/dashboard/instructor/quizzes")}
+            onClick={() => router.push("/dashboard/quizzes")}
             className="text-gray-500 hover:text-gray-700 text-sm"
           >
             ← Back
@@ -856,41 +844,26 @@ export default function InstructorQuizBuilderClient() {
             </label>
 
             <div className="pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-2">Assign to batches</p>
-              {availableBatches.length === 0 ? (
-                <p className="text-xs text-gray-400 italic">
-                  No batches found.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
-                  {availableBatches.map((batch) => (
-                    <label
-                      key={batch.id}
-                      className="flex items-center gap-2 cursor-pointer group"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={settings.batchIds.includes(batch.id)}
-                        onChange={(e) =>
-                          setSettings((s) => ({
-                            ...s,
-                            batchIds: e.target.checked
-                              ? [...s.batchIds, batch.id]
-                              : s.batchIds.filter((id) => id !== batch.id),
-                          }))
-                        }
-                        className="rounded text-amber-500"
-                      />
-                      <span className="text-xs text-gray-700 group-hover:text-gray-900">
-                        {batch.name}
-                        <span className="text-gray-400 ml-1">
-                          · {batch.subject}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs text-gray-500 mb-1">
+                Assign to batches (IDs, comma-separated)
+              </p>
+              <input
+                className="input text-xs"
+                placeholder="batch-id-1, batch-id-2"
+                value={settings.batchIds.join(", ")}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    batchIds: e.target.value
+                      .split(",")
+                      .map((v) => v.trim())
+                      .filter(Boolean),
+                  }))
+                }
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Tip: find batch IDs on the Batches page.
+              </p>
             </div>
           </div>
         )}
