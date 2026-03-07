@@ -10,36 +10,11 @@ import {
   GraduationCap,
 } from "lucide-react";
 
-// Simulated valid join codes → quiz IDs they unlock
-const VALID_CODES: Record<
-  string,
-  { type: "batch" | "quiz"; name: string; redirectTo: string }
-> = {
-  JAVA2026: {
-    type: "batch",
-    name: "Java Programming – Batch 2026",
-    redirectTo: "/dashboard/quizzes",
-  },
-  DBMS2026: {
-    type: "batch",
-    name: "DBMS Advanced – Batch 2026",
-    redirectTo: "/dashboard/quizzes",
-  },
-  "QUIZ-JAVA1": {
-    type: "quiz",
-    name: "Java Basics Test",
-    redirectTo: "/dashboard/quizzes/1",
-  },
-  "QUIZ-SB2": {
-    type: "quiz",
-    name: "Spring Boot Fundamentals",
-    redirectTo: "/dashboard/quizzes/2",
-  },
-  "OS-BATCH1": {
-    type: "batch",
-    name: "Operating Systems – Batch A",
-    redirectTo: "/dashboard/quizzes",
-  },
+type JoinResult = {
+  type: "batch" | "quiz";
+  name: string;
+  redirectTo: string;
+  message?: string;
 };
 
 type Status = "idle" | "loading" | "success" | "error";
@@ -48,9 +23,7 @@ export default function JoinPage() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>("idle");
-  const [result, setResult] = useState<(typeof VALID_CODES)[string] | null>(
-    null,
-  );
+  const [result, setResult] = useState<JoinResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleSubmit = async () => {
@@ -61,20 +34,30 @@ export default function JoinPage() {
     setResult(null);
     setErrorMsg("");
 
-    // Simulate network delay
-    await new Promise((r) => setTimeout(r, 900));
+    try {
+      const res = await fetch("/api/student/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      const data = await res.json();
 
-    const match = VALID_CODES[trimmed];
-    if (match) {
-      setResult(match);
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMsg(
+          data.error ??
+            "That code doesn't exist or has expired. Double-check with your instructor.",
+        );
+        return;
+      }
+
+      setResult(data);
       setStatus("success");
       // Navigate after brief success flash
-      setTimeout(() => router.push(match.redirectTo), 1400);
-    } else {
+      setTimeout(() => router.push(data.redirectTo), 1400);
+    } catch {
       setStatus("error");
-      setErrorMsg(
-        "That code doesn't exist or has expired. Double-check with your instructor.",
-      );
+      setErrorMsg("Something went wrong. Please try again.");
     }
   };
 
@@ -82,7 +65,6 @@ export default function JoinPage() {
     if (e.key === "Enter") handleSubmit();
   };
 
-  // Format code input with hyphens for readability (max 12 chars)
   const handleCodeChange = (val: string) => {
     setCode(val.toUpperCase().slice(0, 16));
     if (status !== "idle") {
@@ -132,7 +114,6 @@ export default function JoinPage() {
               autoCapitalize="characters"
               spellCheck={false}
             />
-            {/* Status icon inside input */}
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               {status === "loading" && (
                 <Loader2 size={18} className="text-gray-400 animate-spin" />
@@ -168,6 +149,11 @@ export default function JoinPage() {
                 <p className="text-emerald-400/70 text-xs mt-0.5">
                   {result.name}
                 </p>
+                {result.message && (
+                  <p className="text-emerald-400/60 text-xs mt-0.5">
+                    {result.message}
+                  </p>
+                )}
                 <p className="text-emerald-400/50 text-xs mt-1">
                   Redirecting you now…
                 </p>
@@ -197,29 +183,10 @@ export default function JoinPage() {
             )}
           </button>
 
-          {/* Hint */}
           <p className="text-center text-gray-600 text-xs mt-5">
-            Codes are case-insensitive. Ask your instructor if you don&apos;t have
-            one.
+            Codes are case-insensitive. Ask your instructor if you don&apos;t
+            have one.
           </p>
-        </div>
-
-        {/* Sample codes for dev */}
-        <div className="mt-6 bg-neutral-900/50 border border-white/5 rounded-xl p-4">
-          <p className="text-gray-600 text-xs font-semibold mb-2 uppercase tracking-wider">
-            Dev — sample codes
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {Object.keys(VALID_CODES).map((c) => (
-              <button
-                key={c}
-                onClick={() => handleCodeChange(c)}
-                className="text-xs font-mono text-amber-400/70 bg-amber-400/5 border border-amber-400/15 rounded-lg px-2 py-1 hover:bg-amber-400/10 transition"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>

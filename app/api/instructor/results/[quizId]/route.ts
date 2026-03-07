@@ -1,143 +1,155 @@
-import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/app/lib/prisma";
-import {
-  getCurrentUser,
-  unauthorized,
-  forbidden,
-  notFound,
-  ok,
-} from "@/lib/api-utils";
 
-type Params = { params: Promise<{ quizId: string }> };
+async function getDbUser() {
+  const { userId } = await auth();
+  if (!userId) return null;
+  return prisma.user.findUnique({ where: { clerkId: userId } });
+}
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const user = await getCurrentUser();
-  if (!user) return unauthorized();
-  if (user.role !== "INSTRUCTOR") return forbidden();
+// GET /api/instructor/results/[quizId]
+export async function GET(
+  _req: Request,
+  { params }: { params: { quizId: string } },
+) {
+  const user = await getDbUser();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { quizId } = await params;
-
-  const quiz = await prisma.quiz.findUnique({
-    where: { id: quizId },
-    select: {
-      id: true,
-      title: true,
-      subject: true,
-      passScore: true,
-      difficulty: true,
-      createdBy: true,
-      correctPoints: true,
-      wrongPoints: true,
+  const quiz = await prisma.quiz.findFirst({
+    where: { id: params.quizId, createdBy: user.id },
+    include: {
       sections: {
-        select: {
-          id: true,
-          title: true,
-          order: true,
+        orderBy: { order: "asc" },
+        include: {
           questions: {
-            select: { id: true, questionText: true, points: true, order: true },
+            orderBy: { order: "asc" },
+            include: {
+              options: { orderBy: { order: "asc" } },
+              answers: {
+                include: {
+                  attempt: {
+                    include: {
+                      user: {
+                        select: {
+                          id: true,
+                          firstName: true,
+                          lastName: true,
+                          email: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
-        orderBy: { order: "asc" },
       },
-    },
-  });
-
-  if (!quiz) return notFound("Quiz not found");
-  if (quiz.createdBy !== user.id) return forbidden();
-
-  const attempts = await prisma.attempt.findMany({
-    where: { quizId, status: "SUBMITTED" },
-    orderBy: { submittedAt: "desc" },
-    include: {
-      user: {
-        select: { id: true, firstName: true, lastName: true, email: true },
-      },
-      answers: {
-        select: {
-          questionId: true,
-          optionId: true,
-          selectedOptions: true,
-          isCorrect: true,
-          pointsEarned: true,
-          timeSpent: true,
+      attempts: {
+        where: { status: "SUBMITTED" },
+        include: {
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+          answers: { include: { question: true } },
         },
+        orderBy: { completedAt: "desc" },
       },
+      batches: { include: { batch: { select: { id: true, name: true } } } },
     },
   });
+
+  if (!quiz)
+    return NextResponse.json({ error: "Quiz not found" }, { status: 404 });
+
+  const totalQs = quiz.sections.reduce((acc, s) => acc + s.questions.length, 0);
+  const maxScore = totalQs * (quiz.correctPoints ?? 1);
+
+  const submissions = quiz.attempts.map((a) => ({
+    id: a.id,
+    studentId: a.user.id,
+    studentName: `${a.user.firstName} ${a.user.lastName}`.trim(),
+    studentEmail: a.user.email,
+    studentAvatar:
+      `${a.user.firstName[0] ?? ""}${a.user.lastName[0] ?? ""}`.toUpperCase(),
+    score: a.totalScore ?? 0,
+    maxScore: a.maxScore ?? maxScore,
+    percentage: a.percentageScore ?? 0,
+    passed: a.passed ?? false,
+    completedAt: a.completedAt?.toISOString() ?? "",
+    timeSpent: a.timeSpent ?? 0,
+    answers: a.answers.map((ans) => ({
+      questionId: ans.questionId,
+      questionText: ans.question.questionText,
+      isCorrect: ans.isCorrect,
+      pointsEarned: ans.pointsEarned,
+    })),
+  }));
 
   // Per-question stats
-  const questionStats = new Map<
-    string,
-    { correct: number; total: number; avgTime: number; timeCount: number }
-  >();
-  for (const attempt of attempts) {
-    for (const answer of attempt.answers) {
-      const prev = questionStats.get(answer.questionId) ?? {
-        correct: 0,
-        total: 0,
-        avgTime: 0,
-        timeCount: 0,
-      };
-      questionStats.set(answer.questionId, {
-        correct: prev.correct + (answer.isCorrect ? 1 : 0),
-        total: prev.total + 1,
-        avgTime: prev.avgTime + (answer.timeSpent ?? 0),
-        timeCount: prev.timeCount + (answer.timeSpent ? 1 : 0),
-      });
-    }
-  }
-
-  const avgScore =
-    attempts.length > 0
-      ? Math.round(
-          attempts.reduce((s, a) => s + (a.percentageScore ?? 0), 0) /
-            attempts.length,
-        )
-      : 0;
-  const passRate =
-    attempts.length > 0
-      ? Math.round(
-          (attempts.filter((a) => a.passed).length / attempts.length) * 100,
-        )
-      : 0;
-
-  return ok({
-    quiz,
-    stats: {
-      totalAttempts: attempts.length,
-      averageScore: avgScore,
-      passRate,
-      highestScore: attempts.reduce(
-        (max, a) => Math.max(max, a.percentageScore ?? 0),
-        0,
-      ),
-      lowestScore: attempts.reduce(
-        (min, a) => Math.min(min, a.percentageScore ?? 100),
-        100,
-      ),
-    },
-    questionStats: Array.from(questionStats.entries()).map(
-      ([questionId, stats]) => ({
-        questionId,
+  const questionStats = quiz.sections.flatMap((s) =>
+    s.questions.map((q) => {
+      const questionAnswers = q.answers;
+      const correctCount = questionAnswers.filter((a) => a.isCorrect).length;
+      const totalCount = questionAnswers.length;
+      return {
+        questionId: q.id,
+        questionText: q.questionText,
+        sectionTitle: s.title,
+        totalAnswers: totalCount,
+        correctCount,
         correctRate:
-          stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0,
-        totalAnswered: stats.total,
-        avgTimeSpent:
-          stats.timeCount > 0
-            ? Math.round(stats.avgTime / stats.timeCount)
-            : null,
-      }),
-    ),
-    attempts: attempts.map((a) => ({
-      id: a.id,
-      student: a.user,
-      attemptNumber: a.attemptNumber,
-      totalScore: a.totalScore,
-      maxScore: a.maxScore,
-      percentageScore: a.percentageScore,
-      passed: a.passed,
-      timeSpent: a.timeSpent,
-      submittedAt: a.submittedAt,
-    })),
+          totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0,
+        options: q.options.map((o) => {
+          const selectedCount = questionAnswers.filter((a) =>
+            Array.isArray(a.selectedOptions)
+              ? (a.selectedOptions as string[]).includes(o.id)
+              : a.optionId === o.id,
+          ).length;
+          return {
+            id: o.id,
+            optionText: o.optionText,
+            isCorrect: o.isCorrect,
+            selectedCount,
+            selectRate:
+              totalCount > 0
+                ? Math.round((selectedCount / totalCount) * 100)
+                : 0,
+          };
+        }),
+      };
+    }),
+  );
+
+  const scores = quiz.attempts
+    .map((a) => a.percentageScore)
+    .filter((s): s is number => s != null);
+  const avgScore =
+    scores.length > 0
+      ? Math.round(scores.reduce((a, c) => a + c, 0) / scores.length)
+      : 0;
+  const passCount = quiz.attempts.filter((a) => a.passed).length;
+
+  return NextResponse.json({
+    quiz: {
+      id: quiz.id,
+      title: quiz.title,
+      subject: quiz.subject,
+      status: quiz.status.toLowerCase(),
+      totalAttempts: quiz.attempts.length,
+      avgScore,
+      passRate:
+        quiz.attempts.length > 0
+          ? Math.round((passCount / quiz.attempts.length) * 100)
+          : 0,
+      maxScore,
+      batches: quiz.batches.map((qb) => qb.batch.name),
+    },
+    submissions,
+    questionStats,
   });
 }

@@ -8,7 +8,6 @@ import {
   Calendar,
   ChevronRight,
   Search,
-  Filter,
   Loader2,
   CheckCircle2,
   Lock,
@@ -26,7 +25,6 @@ type Quiz = {
   beginWindow: string | null;
   endWindow: string | null;
   status: string;
-  // student-specific
   attemptStatus: "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED" | null;
   percentageScore: number | null;
   passed: boolean | null;
@@ -79,6 +77,7 @@ function StatusBadge({ quiz }: { quiz: Quiz }) {
   );
 }
 
+// No props — fetches its own data from /api/student/quizzes
 export default function QuizPageClient() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,8 +114,8 @@ export default function QuizPageClient() {
     const matchFilter =
       filter === "ALL" ||
       (filter === "AVAILABLE" && isAvailable) ||
-      (filter === "UPCOMING" && isUpcoming) ||
-      (filter === "DONE" && isDone);
+      (filter === "UPCOMING" && !!isUpcoming) ||
+      (filter === "DONE" && !!isDone);
 
     return matchSearch && matchFilter;
   });
@@ -130,15 +129,11 @@ export default function QuizPageClient() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-black text-white">Quizzes</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {quizzes.length} quiz{quizzes.length !== 1 ? "zes" : ""} assigned to
-          you
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      {/* Summary */}
+      <p className="text-sm text-gray-500">
+        {quizzes.length} quiz{quizzes.length !== 1 ? "zes" : ""} assigned to you
+      </p>
 
       {/* Search + Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -154,7 +149,7 @@ export default function QuizPageClient() {
             className="w-full bg-neutral-900 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-400/50 transition"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(["ALL", "AVAILABLE", "UPCOMING", "DONE"] as const).map((f) => (
             <button
               key={f}

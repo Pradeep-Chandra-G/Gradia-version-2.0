@@ -1,138 +1,196 @@
-import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/app/lib/prisma";
-import { getCurrentUser, unauthorized, forbidden, ok } from "@/lib/api-utils";
 
-export async function GET(req: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return unauthorized();
-  if (user.role !== "INSTRUCTOR") return forbidden();
+async function getDbUser() {
+  const { userId } = await auth();
+  if (!userId) return null;
+  return prisma.user.findUnique({ where: { clerkId: userId } });
+}
 
-  const { searchParams } = new URL(req.url);
-  const range = parseInt(searchParams.get("days") ?? "30");
-  const since = new Date(Date.now() - range * 24 * 60 * 60 * 1000);
+// GET /api/instructor/analytics
+export async function GET() {
+  const user = await getDbUser();
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "INSTRUCTOR" && user.role !== "ADMIN")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Quizzes created by this instructor
-  const quizIds = (
-    await prisma.quiz.findMany({
-      where: { createdBy: user.id },
-      select: { id: true },
-    })
-  ).map((q) => q.id);
-
-  const [attempts, batchCount, studentCount] = await Promise.all([
-    prisma.attempt.findMany({
-      where: {
-        quizId: { in: quizIds },
-        status: "SUBMITTED",
-        submittedAt: { gte: since },
+  // Get all batches where this instructor teaches
+  const batches = await prisma.batch.findMany({
+    where: {
+      instructors: { some: { instructorId: user.id } },
+    },
+    include: {
+      students: { where: { status: "ACTIVE" } },
+      quizzes: {
+        include: {
+          quiz: {
+            include: {
+              attempts: {
+                where: { status: "SUBMITTED" },
+                select: {
+                  percentageScore: true,
+                  passed: true,
+                  timeSpent: true,
+                  completedAt: true,
+                  userId: true,
+                },
+              },
+            },
+          },
+        },
       },
-      include: {
-        quiz: { select: { title: true, subject: true } },
-        user: { select: { id: true } },
+    },
+  });
+
+  // Get all quizzes created by this instructor
+  const quizzes = await prisma.quiz.findMany({
+    where: { createdBy: user.id },
+    include: {
+      sections: { include: { questions: true } },
+      attempts: {
+        where: { status: "SUBMITTED" },
+        select: {
+          percentageScore: true,
+          passed: true,
+          timeSpent: true,
+          completedAt: true,
+          userId: true,
+        },
       },
-      orderBy: { submittedAt: "asc" },
-    }),
-    prisma.batchInstructor.count({ where: { instructorId: user.id } }),
-    prisma.batchStudent.count({
-      where: {
-        status: "ACTIVE",
-        batch: { instructors: { some: { instructorId: user.id } } },
-      },
-    }),
-  ]);
+      batches: { include: { batch: { select: { id: true, name: true } } } },
+    },
+  });
 
-  // Daily attempt counts
-  const dailyMap = new Map<string, { count: number; totalScore: number }>();
-  for (const a of attempts) {
-    const day = a.submittedAt!.toISOString().split("T")[0];
-    const prev = dailyMap.get(day) ?? { count: 0, totalScore: 0 };
-    dailyMap.set(day, {
-      count: prev.count + 1,
-      totalScore: prev.totalScore + (a.percentageScore ?? 0),
-    });
-  }
-  const dailyActivity = Array.from(dailyMap.entries()).map(([date, stats]) => ({
-    date,
-    attempts: stats.count,
-    averageScore: Math.round(stats.totalScore / stats.count),
-  }));
-
-  // Per-subject performance
-  const subjectMap = new Map<
-    string,
-    { total: number; count: number; passed: number }
-  >();
-  for (const a of attempts) {
-    const sub = a.quiz.subject;
-    const prev = subjectMap.get(sub) ?? { total: 0, count: 0, passed: 0 };
-    subjectMap.set(sub, {
-      total: prev.total + (a.percentageScore ?? 0),
-      count: prev.count + 1,
-      passed: prev.passed + (a.passed ? 1 : 0),
-    });
-  }
-  const subjectPerformance = Array.from(subjectMap.entries()).map(
-    ([subject, stats]) => ({
-      subject,
-      averageScore: Math.round(stats.total / stats.count),
-      totalAttempts: stats.count,
-      passRate: Math.round((stats.passed / stats.count) * 100),
-    }),
-  );
-
-  // Top/bottom performing quizzes
-  const quizPerf = new Map<
-    string,
-    { title: string; total: number; count: number; passed: number }
-  >();
-  for (const a of attempts) {
-    const prev = quizPerf.get(a.quizId) ?? {
-      title: a.quiz.title,
-      total: 0,
-      count: 0,
-      passed: 0,
-    };
-    quizPerf.set(a.quizId, {
-      title: prev.title,
-      total: prev.total + (a.percentageScore ?? 0),
-      count: prev.count + 1,
-      passed: prev.passed + (a.passed ? 1 : 0),
-    });
-  }
-  const quizPerformance = Array.from(quizPerf.entries())
-    .map(([id, stats]) => ({
-      quizId: id,
-      title: stats.title,
-      averageScore: Math.round(stats.total / stats.count),
-      totalAttempts: stats.count,
-      passRate: Math.round((stats.passed / stats.count) * 100),
-    }))
-    .sort((a, b) => b.totalAttempts - a.totalAttempts);
-
+  const allAttempts = quizzes.flatMap((q) => q.attempts);
+  const scores = allAttempts
+    .map((a) => a.percentageScore)
+    .filter((s): s is number => s != null);
   const avgScore =
-    attempts.length > 0
-      ? Math.round(
-          attempts.reduce((s, a) => s + (a.percentageScore ?? 0), 0) /
-            attempts.length,
-        )
+    scores.length > 0
+      ? Math.round(scores.reduce((a, c) => a + c, 0) / scores.length)
       : 0;
+  const passCount = allAttempts.filter((a) => a.passed).length;
   const passRate =
-    attempts.length > 0
-      ? Math.round(
-          (attempts.filter((a) => a.passed).length / attempts.length) * 100,
-        )
+    allAttempts.length > 0
+      ? Math.round((passCount / allAttempts.length) * 100)
       : 0;
 
-  return ok({
+  // Total unique students across all batches
+  const allStudentIds = new Set(
+    batches.flatMap((b) => b.students.map((s) => s.studentId)),
+  );
+  const totalStudents = allStudentIds.size;
+
+  // Active students (those with at least one attempt in the last 30 days)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recentAttempts = allAttempts.filter(
+    (a) => a.completedAt && a.completedAt > thirtyDaysAgo,
+  );
+  const activeStudentIds = new Set(recentAttempts.map((a) => a.userId));
+  const activeStudents = activeStudentIds.size;
+
+  // Per-batch analytics
+  const batchAnalytics = batches.map((b) => {
+    const batchAttempts = b.quizzes.flatMap((qb) => qb.quiz.attempts);
+    const batchScores = batchAttempts
+      .map((a) => a.percentageScore)
+      .filter((s): s is number => s != null);
+    const batchAvgScore =
+      batchScores.length > 0
+        ? Math.round(
+            batchScores.reduce((a, c) => a + c, 0) / batchScores.length,
+          )
+        : 0;
+    const batchPassCount = batchAttempts.filter((a) => a.passed).length;
+    return {
+      batchId: b.id,
+      batchName: b.name,
+      subject: b.subject,
+      color: b.color,
+      studentCount: b.students.length,
+      quizCount: b.quizzes.length,
+      avgScore: batchAvgScore,
+      passRate:
+        batchAttempts.length > 0
+          ? Math.round((batchPassCount / batchAttempts.length) * 100)
+          : 0,
+      totalAttempts: batchAttempts.length,
+    };
+  });
+
+  // Per-quiz analytics
+  const quizAnalytics = quizzes.map((q) => {
+    const qScores = q.attempts
+      .map((a) => a.percentageScore)
+      .filter((s): s is number => s != null);
+    const qAvg =
+      qScores.length > 0
+        ? Math.round(qScores.reduce((a, c) => a + c, 0) / qScores.length)
+        : 0;
+    const qPass = q.attempts.filter((a) => a.passed).length;
+    return {
+      quizId: q.id,
+      quizTitle: q.title,
+      subject: q.subject,
+      status: q.status.toLowerCase(),
+      attempts: q.attempts.length,
+      avgScore: qAvg,
+      passRate:
+        q.attempts.length > 0
+          ? Math.round((qPass / q.attempts.length) * 100)
+          : 0,
+      batches: q.batches.map((qb) => qb.batch.name),
+    };
+  });
+
+  // Monthly trend — last 6 months
+  const monthlyTrend: Array<{
+    month: string;
+    attempts: number;
+    avgScore: number;
+  }> = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    const monthAttempts = allAttempts.filter(
+      (a) =>
+        a.completedAt &&
+        a.completedAt >= monthStart &&
+        a.completedAt <= monthEnd,
+    );
+    const mScores = monthAttempts
+      .map((a) => a.percentageScore)
+      .filter((s): s is number => s != null);
+    monthlyTrend.push({
+      month: monthStart.toLocaleString("default", {
+        month: "short",
+        year: "2-digit",
+      }),
+      attempts: monthAttempts.length,
+      avgScore:
+        mScores.length > 0
+          ? Math.round(mScores.reduce((a, c) => a + c, 0) / mScores.length)
+          : 0,
+    });
+  }
+
+  return NextResponse.json({
     overview: {
-      totalBatches: batchCount,
-      totalStudents: studentCount,
-      totalAttempts: attempts.length,
-      averageScore: avgScore,
+      totalStudents,
+      activeStudents,
+      totalBatches: batches.length,
+      totalQuizzes: quizzes.length,
+      publishedQuizzes: quizzes.filter((q) => q.status === "PUBLISHED").length,
+      totalAttempts: allAttempts.length,
+      avgScore,
       passRate,
     },
-    dailyActivity,
-    subjectPerformance,
-    quizPerformance,
+    batchAnalytics,
+    quizAnalytics,
+    monthlyTrend,
   });
 }

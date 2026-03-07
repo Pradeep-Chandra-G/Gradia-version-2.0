@@ -1,728 +1,907 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Plus,
-  Trash2,
-  GripVertical,
-  ChevronDown,
-  ChevronUp,
-  Check,
-  X,
-  Save,
-  Send,
-  Eye,
-  Circle,
-  CheckSquare,
-  ToggleLeft,
-  AlertCircle,
-  Layers,
-  Clock,
-  BookOpen,
-  Settings,
-} from "lucide-react";
-import { mockBatches } from "@/data/instructorData";
+import { toast } from "sonner";
 
-// ── Types (local) ───────────────────────────────────────────────────────────
-type QType = "SINGLE_OPTION" | "MCQ" | "TRUE_FALSE";
-type Option = { id: string; text: string; isCorrect: boolean };
-type Question = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type OptionDraft = {
+  id: string; // temporary client-side id
+  optionText: string;
+  isCorrect: boolean;
+  order: number;
+};
+
+type QuestionDraft = {
   id: string;
-  type: QType;
-  text: string;
-  options: Option[];
+  questionText: string;
+  questionType: "MCQ" | "MULTI_SELECT" | "TRUE_FALSE";
+  order: number;
   points: number;
   explanation: string;
-};
-type Section = { id: string; title: string; questions: Question[] };
-
-const UID = () => Math.random().toString(36).slice(2, 9);
-
-function defaultOptions(type: QType): Option[] {
-  if (type === "TRUE_FALSE")
-    return [
-      { id: UID(), text: "True", isCorrect: true },
-      { id: UID(), text: "False", isCorrect: false },
-    ];
-  return [
-    { id: UID(), text: "", isCorrect: true },
-    { id: UID(), text: "", isCorrect: false },
-    { id: UID(), text: "", isCorrect: false },
-    { id: UID(), text: "", isCorrect: false },
-  ];
-}
-
-const QTYPE_META: Record<
-  QType,
-  { label: string; icon: React.ElementType; desc: string }
-> = {
-  SINGLE_OPTION: {
-    label: "Single Choice",
-    icon: Circle,
-    desc: "One correct answer",
-  },
-  MCQ: {
-    label: "Multiple Choice",
-    icon: CheckSquare,
-    desc: "Multiple correct answers",
-  },
-  TRUE_FALSE: {
-    label: "True / False",
-    icon: ToggleLeft,
-    desc: "True or false",
-  },
+  options: OptionDraft[];
 };
 
-// ── Option Editor ────────────────────────────────────────────────────────────
-function OptionEditor({
-  option,
-  qtype,
-  onUpdate,
-  onDelete,
-  canDelete,
-}: {
-  option: Option;
-  qtype: QType;
-  onUpdate: (id: string, patch: Partial<Option>) => void;
-  onDelete: (id: string) => void;
-  canDelete: boolean;
-}) {
-  const isLocked = qtype === "TRUE_FALSE";
+type SectionDraft = {
+  id: string;
+  title: string;
+  order: number;
+  sectionalTimeLimit: number | null;
+  questions: QuestionDraft[];
+};
 
-  return (
-    <div
-      className={`flex items-center gap-2.5 group p-2 rounded-xl border transition ${
-        option.isCorrect
-          ? "border-emerald-500/30 bg-emerald-500/5"
-          : "border-white/5 bg-neutral-800/30"
-      }`}
-    >
-      <button
-        onClick={() =>
-          !isLocked && onUpdate(option.id, { isCorrect: !option.isCorrect })
-        }
-        title={
-          qtype === "SINGLE_OPTION"
-            ? "Mark as correct (only one allowed)"
-            : "Toggle correct"
-        }
-        className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
-          option.isCorrect
-            ? "border-emerald-400 bg-emerald-400"
-            : "border-gray-600 hover:border-emerald-400"
-        } ${isLocked ? "cursor-default" : "cursor-pointer"}`}
-      >
-        {option.isCorrect && <Check size={10} className="text-black" />}
-      </button>
+type QuizSettings = {
+  title: string;
+  description: string;
+  subject: string;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  accessType: "BATCH_ONLY" | "OPEN";
+  totalTimeLimit: number | null;
+  beginWindow: string;
+  endWindow: string;
+  showResultsImmediately: boolean;
+  passScore: number;
+  correctPoints: number;
+  wrongPoints: number;
+  batchIds: string[];
+};
 
-      <input
-        value={option.text}
-        onChange={(e) =>
-          !isLocked && onUpdate(option.id, { text: e.target.value })
-        }
-        disabled={isLocked}
-        placeholder={`Option ${isLocked ? option.text : "text…"}`}
-        className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none disabled:cursor-default"
-      />
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-      {!isLocked && canDelete && (
-        <button
-          onClick={() => onDelete(option.id)}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-600 hover:text-red-400 transition shrink-0"
-        >
-          <X size={12} />
-        </button>
-      )}
-    </div>
-  );
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
-// ── Question Editor ──────────────────────────────────────────────────────────
-function QuestionEditor({
-  question,
-  index,
-  onUpdate,
-  onDelete,
-}: {
-  question: Question;
-  index: number;
-  onUpdate: (patch: Partial<Question>) => void;
-  onDelete: () => void;
-}) {
-  const [expanded, setExpanded] = useState(true);
+function emptyOption(order: number): OptionDraft {
+  return { id: uid(), optionText: "", isCorrect: false, order };
+}
 
-  const updateOption = (optId: string, patch: Partial<Option>) => {
-    let opts = question.options.map((o) =>
-      o.id === optId ? { ...o, ...patch } : o,
-    );
-    // For SINGLE_OPTION: uncheck all others when one is checked
-    if (patch.isCorrect && question.type === "SINGLE_OPTION") {
-      opts = opts.map((o) => (o.id === optId ? o : { ...o, isCorrect: false }));
+function emptyQuestion(order: number): QuestionDraft {
+  return {
+    id: uid(),
+    questionText: "",
+    questionType: "MCQ",
+    order,
+    points: 1,
+    explanation: "",
+    options: [emptyOption(1), emptyOption(2), emptyOption(3), emptyOption(4)],
+  };
+}
+
+function emptySection(order: number): SectionDraft {
+  return {
+    id: uid(),
+    title: `Section ${order}`,
+    order,
+    sectionalTimeLimit: null,
+    questions: [emptyQuestion(1)],
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function InstructorQuizBuilderClient() {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [activeSection, setActiveSection] = useState(0);
+  const [activeQuestion, setActiveQuestion] = useState<number>(0);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const [settings, setSettings] = useState<QuizSettings>({
+    title: "",
+    description: "",
+    subject: "",
+    difficulty: "MEDIUM",
+    accessType: "BATCH_ONLY",
+    totalTimeLimit: null,
+    beginWindow: "",
+    endWindow: "",
+    showResultsImmediately: true,
+    passScore: 50,
+    correctPoints: 1,
+    wrongPoints: 0,
+    batchIds: [],
+  });
+
+  const [sections, setSections] = useState<SectionDraft[]>([emptySection(1)]);
+
+  // ── Validation ──────────────────────────────────────────────────────────────
+
+  function validate(forPublish = false): string | null {
+    if (!settings.title.trim()) return "Quiz title is required.";
+    if (!settings.subject.trim()) return "Subject is required.";
+    if (sections.length === 0) return "At least one section is required.";
+    for (const section of sections) {
+      if (section.questions.length === 0)
+        return `Section "${section.title}" has no questions.`;
+      for (const q of section.questions) {
+        if (!q.questionText.trim())
+          return `A question in "${section.title}" has no text.`;
+        if (q.options.length < 2)
+          return `Question "${q.questionText}" needs at least 2 options.`;
+        if (!q.options.some((o) => o.isCorrect))
+          return `Question "${q.questionText}" has no correct answer marked.`;
+        if (q.options.some((o) => !o.optionText.trim()))
+          return `All options in "${q.questionText}" must have text.`;
+      }
     }
-    onUpdate({ options: opts });
-  };
+    if (forPublish) {
+      if (
+        settings.accessType === "BATCH_ONLY" &&
+        settings.batchIds.length === 0
+      )
+        return "Please assign this quiz to at least one batch before publishing.";
+    }
+    return null;
+  }
 
-  const deleteOption = (optId: string) => {
-    if (question.options.length <= 2) return;
-    onUpdate({ options: question.options.filter((o) => o.id !== optId) });
-  };
+  // ── API call ─────────────────────────────────────────────────────────────────
 
-  const addOption = () => {
-    if (question.options.length >= 6) return;
-    onUpdate({
-      options: [...question.options, { id: UID(), text: "", isCorrect: false }],
+  async function submit(publish: boolean) {
+    const error = validate(publish);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    publish ? setPublishing(true) : setSaving(true);
+    try {
+      const payload = {
+        ...settings,
+        totalTimeLimit: settings.totalTimeLimit || null,
+        beginWindow: settings.beginWindow || null,
+        endWindow: settings.endWindow || null,
+        sections: sections.map((s) => ({
+          title: s.title,
+          order: s.order,
+          sectionalTimeLimit: s.sectionalTimeLimit,
+          questions: s.questions.map((q) => ({
+            questionText: q.questionText,
+            questionType: q.questionType,
+            order: q.order,
+            points: q.points,
+            explanation: q.explanation,
+            options: q.options.map((o) => ({
+              optionText: o.optionText,
+              isCorrect: o.isCorrect,
+              order: o.order,
+            })),
+          })),
+        })),
+        publish,
+      };
+
+      const res = await fetch("/api/instructor/quizzes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to save quiz");
+
+      toast.success(publish ? "Quiz published!" : "Draft saved!");
+      router.push("/dashboard/quizzes");
+    } catch (err: any) {
+      toast.error(err.message ?? "Something went wrong");
+    } finally {
+      setSaving(false);
+      setPublishing(false);
+    }
+  }
+
+  // ── Section helpers ───────────────────────────────────────────────────────────
+
+  function addSection() {
+    setSections((prev) => {
+      const next = [...prev, emptySection(prev.length + 1)];
+      setActiveSection(next.length - 1);
+      setActiveQuestion(0);
+      return next;
     });
-  };
+  }
 
-  const changeType = (t: QType) => {
-    onUpdate({ type: t, options: defaultOptions(t) });
-  };
+  function updateSection(idx: number, patch: Partial<SectionDraft>) {
+    setSections((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)),
+    );
+  }
 
-  const hasError =
-    !question.text.trim() ||
-    question.options.some(
-      (o) => o.text.trim() === "" && question.type !== "TRUE_FALSE",
-    ) ||
-    !question.options.some((o) => o.isCorrect);
+  function removeSection(idx: number) {
+    if (sections.length === 1) {
+      toast.error("A quiz needs at least one section.");
+      return;
+    }
+    setSections((prev) =>
+      prev.filter((_, i) => i !== idx).map((s, i) => ({ ...s, order: i + 1 })),
+    );
+    setActiveSection((prev) => Math.min(prev, sections.length - 2));
+    setActiveQuestion(0);
+  }
+
+  // ── Question helpers ──────────────────────────────────────────────────────────
+
+  function addQuestion(sIdx: number) {
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: [
+                ...s.questions,
+                emptyQuestion(s.questions.length + 1),
+              ],
+            }
+          : s,
+      ),
+    );
+    setActiveQuestion(sections[sIdx].questions.length);
+  }
+
+  function updateQuestion(
+    sIdx: number,
+    qIdx: number,
+    patch: Partial<QuestionDraft>,
+  ) {
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: s.questions.map((q, j) =>
+                j === qIdx ? { ...q, ...patch } : q,
+              ),
+            }
+          : s,
+      ),
+    );
+  }
+
+  function removeQuestion(sIdx: number, qIdx: number) {
+    if (sections[sIdx].questions.length === 1) {
+      toast.error("A section needs at least one question.");
+      return;
+    }
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: s.questions
+                .filter((_, j) => j !== qIdx)
+                .map((q, j) => ({ ...q, order: j + 1 })),
+            }
+          : s,
+      ),
+    );
+    setActiveQuestion((prev) =>
+      Math.min(prev, sections[sIdx].questions.length - 2),
+    );
+  }
+
+  // ── Option helpers ─────────────────────────────────────────────────────────────
+
+  function updateOption(
+    sIdx: number,
+    qIdx: number,
+    oIdx: number,
+    patch: Partial<OptionDraft>,
+  ) {
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: s.questions.map((q, j) =>
+                j === qIdx
+                  ? {
+                      ...q,
+                      options: q.options.map((o, k) => {
+                        if (k !== oIdx) {
+                          // For MCQ, deselect others when marking correct
+                          if (patch.isCorrect && q.questionType === "MCQ") {
+                            return { ...o, isCorrect: false };
+                          }
+                          return o;
+                        }
+                        return { ...o, ...patch };
+                      }),
+                    }
+                  : q,
+              ),
+            }
+          : s,
+      ),
+    );
+  }
+
+  function addOption(sIdx: number, qIdx: number) {
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: s.questions.map((q, j) =>
+                j === qIdx
+                  ? {
+                      ...q,
+                      options: [
+                        ...q.options,
+                        emptyOption(q.options.length + 1),
+                      ],
+                    }
+                  : q,
+              ),
+            }
+          : s,
+      ),
+    );
+  }
+
+  function removeOption(sIdx: number, qIdx: number, oIdx: number) {
+    const q = sections[sIdx].questions[qIdx];
+    if (q.options.length <= 2) {
+      toast.error("Need at least 2 options.");
+      return;
+    }
+    setSections((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? {
+              ...s,
+              questions: s.questions.map((q, j) =>
+                j === qIdx
+                  ? {
+                      ...q,
+                      options: q.options
+                        .filter((_, k) => k !== oIdx)
+                        .map((o, k) => ({ ...o, order: k + 1 })),
+                    }
+                  : q,
+              ),
+            }
+          : s,
+      ),
+    );
+  }
+
+  // ── Current section & question ─────────────────────────────────────────────────
+
+  const curSection = sections[activeSection];
+  const curQuestion = curSection?.questions[activeQuestion];
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      className={`bg-neutral-900 border rounded-2xl overflow-hidden transition-all ${
-        hasError ? "border-amber-500/30" : "border-white/8"
-      }`}
-    >
-      {/* Question header */}
-      <div
-        className="flex items-center gap-3 px-5 py-4 cursor-pointer"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <span className="text-xs text-gray-600 font-mono w-6 shrink-0">
-          Q{index + 1}
-        </span>
-        <span className="flex-1 text-sm text-white truncate">
-          {question.text.trim() || (
-            <span className="text-gray-600 italic">Untitled question…</span>
-          )}
-        </span>
-        <div className="flex items-center gap-2 shrink-0">
-          {hasError && <AlertCircle size={13} className="text-amber-400" />}
-          <span className="text-xs text-gray-600 bg-neutral-800 px-2 py-0.5 rounded-full">
-            {question.points}pt
-          </span>
+    <div className="min-h-screen bg-gray-50">
+      {/* ── Top bar ─────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition"
+            onClick={() => router.push("/dashboard/quizzes")}
+            className="text-gray-500 hover:text-gray-700 text-sm"
           >
-            <Trash2 size={13} />
+            ← Back
           </button>
-          {expanded ? (
-            <ChevronUp size={14} className="text-gray-500" />
-          ) : (
-            <ChevronDown size={14} className="text-gray-500" />
-          )}
+          <input
+            className="text-lg font-semibold text-gray-900 bg-transparent border-b-2 border-transparent focus:border-amber-400 focus:outline-none px-1 min-w-[200px]"
+            placeholder="Untitled Quiz"
+            value={settings.title}
+            onChange={(e) =>
+              setSettings((s) => ({ ...s, title: e.target.value }))
+            }
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50"
+          >
+            ⚙ Settings
+          </button>
+          <button
+            onClick={() => submit(false)}
+            disabled={saving || publishing}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Draft"}
+          </button>
+          <button
+            onClick={() => submit(true)}
+            disabled={saving || publishing}
+            className="px-4 py-1.5 text-sm rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-medium disabled:opacity-50"
+          >
+            {publishing ? "Publishing…" : "Publish Quiz"}
+          </button>
         </div>
       </div>
 
-      {expanded && (
-        <div className="px-5 pb-5 border-t border-white/5 pt-4 flex flex-col gap-4">
-          {/* Type selector */}
-          <div className="flex gap-2">
-            {(
-              Object.entries(QTYPE_META) as [
-                QType,
-                (typeof QTYPE_META)[QType],
-              ][]
-            ).map(([t, m]) => (
-              <button
-                key={t}
-                onClick={() => changeType(t)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition ${
-                  question.type === t
-                    ? "bg-amber-400/15 border-amber-400/40 text-amber-300"
-                    : "border-white/8 text-gray-500 hover:text-gray-300 hover:border-white/15"
+      <div className="flex h-[calc(100vh-57px)]">
+        {/* ── Left sidebar: sections + questions ────────────────── */}
+        <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0">
+          {sections.map((section, sIdx) => (
+            <div key={section.id} className="border-b border-gray-100">
+              {/* Section header */}
+              <div
+                className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${
+                  activeSection === sIdx ? "bg-amber-50" : "hover:bg-gray-50"
                 }`}
+                onClick={() => {
+                  setActiveSection(sIdx);
+                  setActiveQuestion(0);
+                }}
               >
-                <m.icon size={12} /> {m.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Question text */}
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block">
-              Question *
-            </label>
-            <textarea
-              value={question.text}
-              onChange={(e) => onUpdate({ text: e.target.value })}
-              placeholder="Enter your question here…"
-              rows={2}
-              className="w-full bg-neutral-800 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/40 transition resize-none"
-            />
-          </div>
-
-          {/* Options */}
-          <div>
-            <label className="text-xs text-gray-500 mb-2 block">
-              Options{" "}
-              {question.type === "SINGLE_OPTION"
-                ? "(pick one correct)"
-                : question.type === "MCQ"
-                  ? "(select all correct)"
-                  : ""}
-            </label>
-            <div className="flex flex-col gap-2">
-              {question.options.map((opt) => (
-                <OptionEditor
-                  key={opt.id}
-                  option={opt}
-                  qtype={question.type}
-                  onUpdate={updateOption}
-                  onDelete={deleteOption}
-                  canDelete={question.options.length > 2}
-                />
-              ))}
-              {question.type !== "TRUE_FALSE" &&
-                question.options.length < 6 && (
+                <span className="flex-1 text-sm font-medium text-gray-700 truncate">
+                  {section.title}
+                </span>
+                {sections.length > 1 && (
                   <button
-                    onClick={addOption}
-                    className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-amber-400 transition py-1.5"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeSection(sIdx);
+                    }}
+                    className="text-gray-400 hover:text-red-500 text-xs"
                   >
-                    <Plus size={12} /> Add option
+                    ✕
                   </button>
                 )}
+              </div>
+              {/* Questions in section */}
+              {activeSection === sIdx &&
+                section.questions.map((q, qIdx) => (
+                  <div
+                    key={q.id}
+                    className={`flex items-center gap-2 pl-6 pr-3 py-1.5 cursor-pointer ${
+                      activeQuestion === qIdx
+                        ? "bg-amber-100"
+                        : "hover:bg-gray-50"
+                    }`}
+                    onClick={() => setActiveQuestion(qIdx)}
+                  >
+                    <span className="text-xs text-gray-500 w-4">
+                      {qIdx + 1}.
+                    </span>
+                    <span className="flex-1 text-xs text-gray-700 truncate">
+                      {q.questionText || "Untitled question"}
+                    </span>
+                    {section.questions.length > 1 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeQuestion(sIdx, qIdx);
+                        }}
+                        className="text-gray-400 hover:text-red-500 text-xs"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+              {/* Add question */}
+              {activeSection === sIdx && (
+                <button
+                  onClick={() => addQuestion(sIdx)}
+                  className="w-full text-left pl-6 pr-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50"
+                >
+                  + Add question
+                </button>
+              )}
             </div>
-          </div>
+          ))}
+          <button
+            onClick={addSection}
+            className="w-full text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 border-b border-gray-100"
+          >
+            + Add section
+          </button>
+        </div>
 
-          {/* Points + Explanation */}
-          <div className="flex gap-3">
-            <div className="w-28">
-              <label className="text-xs text-gray-500 mb-1.5 block">
-                Points
+        {/* ── Main: question editor ──────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Section title / settings */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Section title
+              </label>
+              <input
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                value={curSection?.title ?? ""}
+                onChange={(e) =>
+                  updateSection(activeSection, { title: e.target.value })
+                }
+              />
+            </div>
+            <div className="w-40">
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Section time limit (min)
               </label>
               <input
                 type="number"
-                min={1}
-                max={20}
-                value={question.points}
+                min={0}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                value={curSection?.sectionalTimeLimit ?? ""}
+                placeholder="No limit"
                 onChange={(e) =>
-                  onUpdate({ points: parseInt(e.target.value) || 1 })
+                  updateSection(activeSection, {
+                    sectionalTimeLimit: e.target.value
+                      ? Number(e.target.value)
+                      : null,
+                  })
                 }
-                className="w-full bg-neutral-800 border border-white/8 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500/40 transition"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="text-xs text-gray-500 mb-1.5 block">
-                Explanation (shown after)
-              </label>
-              <input
-                value={question.explanation}
-                onChange={(e) => onUpdate({ explanation: e.target.value })}
-                placeholder="Why is this the correct answer?"
-                className="w-full bg-neutral-800 border border-white/8 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/40 transition"
               />
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
-// ── Section Editor ───────────────────────────────────────────────────────────
-function SectionEditor({
-  section,
-  index,
-  onUpdate,
-  onDelete,
-  canDelete,
-}: {
-  section: Section;
-  index: number;
-  onUpdate: (patch: Partial<Section>) => void;
-  onDelete: () => void;
-  canDelete: boolean;
-}) {
-  const addQuestion = () => {
-    const q: Question = {
-      id: UID(),
-      type: "SINGLE_OPTION",
-      text: "",
-      options: defaultOptions("SINGLE_OPTION"),
-      points: 4,
-      explanation: "",
-    };
-    onUpdate({ questions: [...section.questions, q] });
-  };
-
-  const updateQuestion = (qId: string, patch: Partial<Question>) => {
-    onUpdate({
-      questions: section.questions.map((q) =>
-        q.id === qId ? { ...q, ...patch } : q,
-      ),
-    });
-  };
-
-  const deleteQuestion = (qId: string) => {
-    onUpdate({ questions: section.questions.filter((q) => q.id !== qId) });
-  };
-
-  const sectionPoints = section.questions.reduce((a, q) => a + q.points, 0);
-
-  return (
-    <div className="border border-white/8 rounded-2xl overflow-hidden">
-      <div className="bg-neutral-900/60 px-5 py-3.5 flex items-center gap-3 border-b border-white/5">
-        <span className="text-xs text-gray-600 font-mono">S{index + 1}</span>
-        <input
-          value={section.title}
-          onChange={(e) => onUpdate({ title: e.target.value })}
-          placeholder="Section title…"
-          className="flex-1 bg-transparent text-sm font-semibold text-white placeholder-gray-600 focus:outline-none"
-        />
-        <span className="text-xs text-gray-600 shrink-0">
-          {sectionPoints} pts · {section.questions.length} q
-        </span>
-        {canDelete && (
-          <button
-            onClick={onDelete}
-            className="p-1 text-gray-600 hover:text-red-400 transition shrink-0"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
-
-      <div className="p-4 flex flex-col gap-3">
-        {section.questions.map((q, qi) => (
-          <QuestionEditor
-            key={q.id}
-            question={q}
-            index={qi}
-            onUpdate={(patch) => updateQuestion(q.id, patch)}
-            onDelete={() => deleteQuestion(q.id)}
-          />
-        ))}
-
-        <button
-          onClick={addQuestion}
-          className="flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-white/15 text-sm text-gray-500 hover:border-amber-400/40 hover:text-amber-400 transition"
-        >
-          <Plus size={14} /> Add Question
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Quiz Builder ────────────────────────────────────────────────────────
-export default function InstructorQuizBuilderClient() {
-  const router = useRouter();
-  const [title, setTitle] = useState("");
-  const [subject, setSubject] = useState("");
-  const [batchId, setBatchId] = useState("");
-  const [duration, setDuration] = useState(30);
-  const [deadline, setDeadline] = useState("");
-  const [sections, setSections] = useState<Section[]>([
-    {
-      id: UID(),
-      title: "Section 1",
-      questions: [
-        {
-          id: UID(),
-          type: "SINGLE_OPTION",
-          text: "",
-          options: defaultOptions("SINGLE_OPTION"),
-          points: 4,
-          explanation: "",
-        },
-      ],
-    },
-  ]);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"build" | "settings">("build");
-
-  const totalQuestions = sections.reduce((a, s) => a + s.questions.length, 0);
-  const totalPoints = sections.reduce(
-    (a, s) => a + s.questions.reduce((b, q) => b + q.points, 0),
-    0,
-  );
-
-  const hasErrors =
-    !title.trim() ||
-    sections.some((s) =>
-      s.questions.some(
-        (q) =>
-          !q.text.trim() ||
-          !q.options.some((o) => o.isCorrect) ||
-          q.options.some(
-            (o) => o.text.trim() === "" && q.type !== "TRUE_FALSE",
-          ),
-      ),
-    );
-
-  const addSection = () => {
-    setSections((prev) => [
-      ...prev,
-      {
-        id: UID(),
-        title: `Section ${prev.length + 1}`,
-        questions: [
-          {
-            id: UID(),
-            type: "SINGLE_OPTION",
-            text: "",
-            options: defaultOptions("SINGLE_OPTION"),
-            points: 4,
-            explanation: "",
-          },
-        ],
-      },
-    ]);
-  };
-
-  const updateSection = (sId: string, patch: Partial<Section>) => {
-    setSections((prev) =>
-      prev.map((s) => (s.id === sId ? { ...s, ...patch } : s)),
-    );
-  };
-
-  const deleteSection = (sId: string) => {
-    setSections((prev) => prev.filter((s) => s.id !== sId));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setSaving(false);
-    // In real app: POST to API
-    router.push("/dashboard/instructor/quizzes");
-  };
-
-  const handlePublish = async () => {
-    if (hasErrors) return;
-    setPublishing(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setPublishing(false);
-    router.push("/dashboard/instructor/quizzes");
-  };
-
-  return (
-    <div className="text-white min-h-full flex flex-col">
-      {/* Sticky top bar */}
-      <div className="sticky top-0 z-20 bg-black/90 backdrop-blur-md border-b border-white/8 px-6 py-3 flex items-center gap-4">
-        <button
-          onClick={() => router.back()}
-          className="text-gray-500 hover:text-white transition shrink-0"
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <div className="flex-1 min-w-0">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Quiz title…"
-            className="bg-transparent text-base font-bold text-white placeholder-gray-600 focus:outline-none w-full truncate"
-          />
-          <div className="text-xs text-gray-600 mt-0.5">
-            {totalQuestions} questions · {totalPoints} pts
-            {batchId &&
-              ` · ${mockBatches.find((b) => b.id === batchId)?.name ?? ""}`}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/10 text-sm text-gray-300 hover:text-white hover:border-white/20 transition disabled:opacity-50"
-          >
-            {saving ? (
-              "Saving…"
-            ) : (
-              <>
-                <Save size={13} /> Save Draft
-              </>
-            )}
-          </button>
-          <button
-            onClick={handlePublish}
-            disabled={hasErrors || publishing}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-400 disabled:opacity-40 transition"
-          >
-            {publishing ? (
-              "Publishing…"
-            ) : (
-              <>
-                <Send size={13} /> Publish
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-1">
-        {/* Sidebar */}
-        <div className="w-56 shrink-0 border-r border-white/8 p-4 flex flex-col gap-1">
-          {[
-            { id: "build" as const, label: "Builder", icon: BookOpen },
-            { id: "settings" as const, label: "Settings", icon: Settings },
-          ].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition ${
-                activeTab === t.id
-                  ? "bg-amber-400/15 border border-amber-400/30 text-amber-300"
-                  : "text-gray-500 hover:text-white"
-              }`}
-            >
-              <t.icon size={14} /> {t.label}
-            </button>
-          ))}
-
-          <div className="mt-auto pt-4 border-t border-white/5">
-            <div className="text-xs text-gray-600 space-y-1.5">
-              <div className="flex justify-between">
-                <span>Sections</span>
-                <span className="text-white">{sections.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Questions</span>
-                <span className="text-white">{totalQuestions}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Total pts</span>
-                <span className="text-amber-400">{totalPoints}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Duration</span>
-                <span className="text-white">{duration}m</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main area */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === "build" && (
-            <div className="max-w-3xl mx-auto flex flex-col gap-4">
-              {sections.map((s, si) => (
-                <SectionEditor
-                  key={s.id}
-                  section={s}
-                  index={si}
-                  onUpdate={(patch) => updateSection(s.id, patch)}
-                  onDelete={() => deleteSection(s.id)}
-                  canDelete={sections.length > 1}
-                />
-              ))}
-
-              <button
-                onClick={addSection}
-                className="flex items-center justify-center gap-2 py-4 rounded-2xl border border-dashed border-white/10 text-sm text-gray-500 hover:border-amber-400/30 hover:text-amber-400 transition"
-              >
-                <Plus size={15} /> Add Section
-              </button>
-
-              {hasErrors && title.trim() && (
-                <div className="flex items-start gap-2 bg-amber-500/8 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300">
-                  <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                  Some questions have issues — every question needs text, at
-                  least one correct answer, and all option fields filled.
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === "settings" && (
-            <div className="max-w-md mx-auto">
-              <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6 flex flex-col gap-5">
-                <h2 className="text-sm font-bold text-white">Quiz Settings</h2>
-
-                <div>
-                  <label className="text-xs text-gray-500 mb-1.5 block">
-                    Subject
-                  </label>
-                  <input
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="e.g. Java"
-                    className="w-full bg-neutral-800 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/40 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-gray-500 mb-1.5 block">
-                    Assign to Batch
+          {/* Question editor */}
+          {curQuestion && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+              {/* Question type & points */}
+              <div className="flex gap-4 items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Question type
                   </label>
                   <select
-                    value={batchId}
-                    onChange={(e) => setBatchId(e.target.value)}
-                    className="w-full bg-neutral-800 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    value={curQuestion.questionType}
+                    onChange={(e) =>
+                      updateQuestion(activeSection, activeQuestion, {
+                        questionType: e.target
+                          .value as QuestionDraft["questionType"],
+                      })
+                    }
                   >
-                    <option value="">— No batch —</option>
-                    {mockBatches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.subject})
-                      </option>
-                    ))}
+                    <option value="MCQ">Multiple Choice (single answer)</option>
+                    <option value="MULTI_SELECT">
+                      Multiple Select (multi answer)
+                    </option>
+                    <option value="TRUE_FALSE">True / False</option>
                   </select>
                 </div>
-
-                <div>
-                  <label className="text-xs text-gray-500 mb-1.5 flex items-center gap-1">
-                    <Clock size={11} /> Duration (minutes)
+                <div className="w-32">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Points
                   </label>
                   <input
                     type="number"
-                    min={5}
-                    max={180}
-                    value={duration}
+                    min={0}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    value={curQuestion.points}
                     onChange={(e) =>
-                      setDuration(parseInt(e.target.value) || 30)
+                      updateQuestion(activeSection, activeQuestion, {
+                        points: Number(e.target.value),
+                      })
                     }
-                    className="w-full bg-neutral-800 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="text-xs text-gray-500 mb-1.5 block">
-                    Deadline (optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
-                    className="w-full bg-neutral-800 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition"
-                  />
-                </div>
+              {/* Question text */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Question text
+                </label>
+                <textarea
+                  rows={3}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+                  placeholder="Enter your question here…"
+                  value={curQuestion.questionText}
+                  onChange={(e) =>
+                    updateQuestion(activeSection, activeQuestion, {
+                      questionText: e.target.value,
+                    })
+                  }
+                />
+              </div>
 
-                <div className="border-t border-white/5 pt-4">
-                  <div className="text-xs text-gray-600 space-y-1.5">
-                    <div className="flex justify-between">
-                      <span>Total questions</span>
-                      <span className="text-white">{totalQuestions}</span>
+              {/* Options */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2">
+                  Answer options
+                  {curQuestion.questionType === "MCQ" && (
+                    <span className="ml-2 text-gray-400">
+                      (select one correct)
+                    </span>
+                  )}
+                  {curQuestion.questionType === "MULTI_SELECT" && (
+                    <span className="ml-2 text-gray-400">
+                      (select all correct)
+                    </span>
+                  )}
+                </label>
+                <div className="space-y-2">
+                  {curQuestion.options.map((opt, oIdx) => (
+                    <div key={opt.id} className="flex items-center gap-2">
+                      {/* Correct toggle */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateOption(activeSection, activeQuestion, oIdx, {
+                            isCorrect: !opt.isCorrect,
+                          })
+                        }
+                        className={`w-5 h-5 flex-shrink-0 rounded-full border-2 transition-colors ${
+                          opt.isCorrect
+                            ? "bg-green-500 border-green-500"
+                            : "border-gray-300 hover:border-green-400"
+                        }`}
+                        title="Mark as correct"
+                      />
+                      <input
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        placeholder={`Option ${oIdx + 1}`}
+                        value={opt.optionText}
+                        onChange={(e) =>
+                          updateOption(activeSection, activeQuestion, oIdx, {
+                            optionText: e.target.value,
+                          })
+                        }
+                      />
+                      <button
+                        onClick={() =>
+                          removeOption(activeSection, activeQuestion, oIdx)
+                        }
+                        className="text-gray-400 hover:text-red-500 text-sm"
+                      >
+                        ✕
+                      </button>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Total points</span>
-                      <span className="text-amber-400">{totalPoints}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Sections</span>
-                      <span className="text-white">{sections.length}</span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
+                <button
+                  onClick={() => addOption(activeSection, activeQuestion)}
+                  className="mt-2 text-xs text-amber-600 hover:underline"
+                >
+                  + Add option
+                </button>
+              </div>
+
+              {/* Explanation */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  Explanation (shown after attempt)
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+                  placeholder="Optional explanation for the correct answer…"
+                  value={curQuestion.explanation}
+                  onChange={(e) =>
+                    updateQuestion(activeSection, activeQuestion, {
+                      explanation: e.target.value,
+                    })
+                  }
+                />
               </div>
             </div>
           )}
         </div>
+
+        {/* ── Right panel: settings drawer ─────────────────────── */}
+        {showSettings && (
+          <div className="w-80 bg-white border-l border-gray-200 overflow-y-auto flex-shrink-0 p-5 space-y-4">
+            <h3 className="font-semibold text-gray-800">Quiz Settings</h3>
+
+            <Field label="Subject *">
+              <input
+                className="input"
+                value={settings.subject}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, subject: e.target.value }))
+                }
+                placeholder="e.g. Mathematics"
+              />
+            </Field>
+
+            <Field label="Description">
+              <textarea
+                className="input resize-none"
+                rows={2}
+                value={settings.description}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, description: e.target.value }))
+                }
+              />
+            </Field>
+
+            <Field label="Difficulty">
+              <select
+                className="input"
+                value={settings.difficulty}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    difficulty: e.target.value as QuizSettings["difficulty"],
+                  }))
+                }
+              >
+                <option value="EASY">Easy</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HARD">Hard</option>
+              </select>
+            </Field>
+
+            <Field label="Access type">
+              <select
+                className="input"
+                value={settings.accessType}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    accessType: e.target.value as QuizSettings["accessType"],
+                  }))
+                }
+              >
+                <option value="BATCH_ONLY">Batch Only</option>
+                <option value="OPEN">Open (anyone in org)</option>
+              </select>
+            </Field>
+
+            <Field label="Total time limit (min)">
+              <input
+                type="number"
+                min={0}
+                className="input"
+                placeholder="No limit"
+                value={settings.totalTimeLimit ?? ""}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    totalTimeLimit: e.target.value
+                      ? Number(e.target.value)
+                      : null,
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="Open window (start)">
+              <input
+                type="datetime-local"
+                className="input"
+                value={settings.beginWindow}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, beginWindow: e.target.value }))
+                }
+              />
+            </Field>
+
+            <Field label="Close window (end)">
+              <input
+                type="datetime-local"
+                className="input"
+                value={settings.endWindow}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, endWindow: e.target.value }))
+                }
+              />
+            </Field>
+
+            <Field label="Pass score (%)">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="input"
+                value={settings.passScore}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    passScore: Number(e.target.value),
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="Points per correct answer">
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={settings.correctPoints}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    correctPoints: Number(e.target.value),
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="Deduction per wrong answer">
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={settings.wrongPoints}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    wrongPoints: Number(e.target.value),
+                  }))
+                }
+              />
+            </Field>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.showResultsImmediately}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    showResultsImmediately: e.target.checked,
+                  }))
+                }
+                className="rounded text-amber-500"
+              />
+              Show results immediately after submission
+            </label>
+
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs text-gray-500 mb-1">
+                Assign to batches (IDs, comma-separated)
+              </p>
+              <input
+                className="input text-xs"
+                placeholder="batch-id-1, batch-id-2"
+                value={settings.batchIds.join(", ")}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    batchIds: e.target.value
+                      .split(",")
+                      .map((v) => v.trim())
+                      .filter(Boolean),
+                  }))
+                }
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Tip: find batch IDs on the Batches page.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Global input style via style tag */}
+      <style>{`
+        .input {
+          width: 100%;
+          border: 1px solid #e5e7eb;
+          border-radius: 0.5rem;
+          padding: 0.375rem 0.75rem;
+          font-size: 0.875rem;
+          outline: none;
+        }
+        .input:focus {
+          ring: 2px solid #fbbf24;
+          border-color: #fbbf24;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Helper component ────────────────────────────────────────────────────────────
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
